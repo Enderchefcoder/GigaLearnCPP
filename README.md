@@ -52,8 +52,8 @@ It is the successor to [RLGymPPO-CPP](https://github.com/ZealanL/RLGymPPO-CPP), 
 ## Quick Start
 
 ```bash
-git clone <this repository>
-cd GigaLearnCPP-Leak
+git clone https://github.com/Enderchefcoder/GigaLearnCPP
+cd GigaLearnCPP
 
 # Place libtorch at GigaLearnCPP/libtorch (see docs/INSTALLATION.md)
 

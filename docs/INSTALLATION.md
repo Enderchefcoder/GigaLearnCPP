@@ -20,8 +20,8 @@ This guide takes you from a fresh clone to a working training build on Windows o
 ## 2. Get the code
 
 ```bash
-git clone <this repository>
-cd GigaLearnCPP-Leak
+git clone https://github.com/Enderchefcoder/GigaLearnCPP
+cd GigaLearnCPP
 ```
 
 All dependencies (RocketSim, RLGymCPP, pybind11, RLBotCPP, nlohmann/json, thread-pool) are vendored in the repository — there are no submodules to initialize.
