@@ -24,11 +24,11 @@ namespace GGL {
 			return json.get<std::vector<T>>();
 		}
 
-		std::set<int64_t> FindNumberedDirs(std::filesystem::path basePath);
+		RG_IMEXPORT std::set<int64_t> FindNumberedDirs(std::filesystem::path basePath);
 
 		// Returns the directory containing the current executable
 		// Falls back to the current working directory if it cannot be determined
-		std::filesystem::path GetExecutableDir();
+		RG_IMEXPORT std::filesystem::path GetExecutableDir();
 
 		template <typename T>
 		std::string NumToStr(T val) {

@@ -25,6 +25,11 @@ namespace GGL {
 
 		PPOLearnerConfig ppo = {};
 
+		// Stop training once this many total timesteps have been collected
+		//	(a final checkpoint is saved first, if saving is enabled)
+		// Set to 0 to train forever (default)
+		int64_t timestepLimit = 0;
+
 		// Checkpoints are saved here as timestep-numbered subfolders
 		//	e.g. a checkpoint at 20,000 steps will save to a subfolder called "20000"
 		// Set empty to disable saving

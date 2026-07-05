@@ -36,5 +36,12 @@ target_include_directories(GigaLearnTests PRIVATE
 
 target_link_libraries(GigaLearnTests PRIVATE RLGymCPP "${TORCH_LIBRARIES}")
 
+# End-to-end integration test (trains a tiny model for real, on CPU)
+add_executable(GigaLearnIntegrationTest "${CMAKE_CURRENT_SOURCE_DIR}/integration/IntegrationTest.cpp")
+set_target_properties(GigaLearnIntegrationTest PROPERTIES CXX_STANDARD 20)
+set_target_properties(GigaLearnIntegrationTest PROPERTIES CXX_STANDARD_REQUIRED ON)
+target_link_libraries(GigaLearnIntegrationTest PRIVATE GigaLearnCPP)
+
 enable_testing()
 add_test(NAME GigaLearnTests COMMAND GigaLearnTests)
+add_test(NAME GigaLearnIntegrationTest COMMAND GigaLearnIntegrationTest)

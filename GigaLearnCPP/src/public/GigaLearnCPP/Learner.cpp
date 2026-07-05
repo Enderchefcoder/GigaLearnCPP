@@ -612,6 +612,9 @@ void GGL::Learner::Start() {
 
 			bool isFirstIteration = (totalTimesteps == 0);
 
+			// Arenas reset due to non-finite states this iteration (see the NaN check below)
+			int nanResetsThisIteration = 0;
+
 			GGL::PolicyVersion* oldVersion = NULL;
 			std::vector<int> newPlayerIndices = {}, oldPlayerIndices = {};
 			torch::Tensor tNewPlayerIndices, tOldPlayerIndices;
@@ -669,11 +672,18 @@ void GGL::Learner::Start() {
 					if (prevRecordedMask[i] && !recordedMask[i] && trajectories[i].Length() > 0) {
 						auto& traj = trajectories[i];
 
+						// Truncation requires the next state for the critic
+						FList nextState = envSet->state.obs.GetRow(i);
+
+						if (ContainsNonFinite(nextState.data(), nextState.size())) {
+							// The env diverged at the iteration boundary, this trajectory can't be bootstrapped
+							traj.Clear();
+							continue;
+						}
+
 						// The trajectory always ends mid-episode here (otherwise it would have been consumed already)
 						traj.terminals.back() = RLGC::TerminalType::TRUNCATED;
 
-						// Truncation requires the next state for the critic
-						FList nextState = envSet->state.obs.GetRow(i);
 						fnStandardizeRow(nextState);
 						traj.nextStates += nextState;
 
@@ -713,16 +723,62 @@ void GGL::Learner::Start() {
 						envStepTime += stepTimer.Elapsed();
 
 						if (ContainsNonFinite(envSet->state.obs.data.data(), envSet->state.obs.data.size())) {
-							// Find the offending value for a useful error message
-							for (int i = 0; i < envSet->state.numPlayers; i++)
-								for (int j = 0; j < obsSize; j++)
-									if (!std::isfinite(envSet->state.obs.At(i, j)))
-										RG_ERR_CLOSE(
-											"Obs builder produced a NaN/inf value at obs index " << j <<
-											" (player index " << i << ", value: " << envSet->state.obs.At(i, j) << ")"
-										);
+							// One or more arenas produced non-finite obs
+							// This is either a physics divergence (extreme collisions can very rarely
+							//	make RocketSim produce NaN states) or a bugged obs builder
+							// Physics divergences are recovered from by resetting the affected arenas,
+							//	a bugged obs builder is a fatal error (see below)
 
-							RG_ERR_CLOSE("Obs builder produced a NaN/inf value");
+							// Find and reset the affected arenas, discarding their poisoned trajectories
+							int numBadArenas = 0;
+							for (int arenaIdx = 0; arenaIdx < envSet->arenas.size(); arenaIdx++) {
+								int playerStartIdx = envSet->state.arenaPlayerStartIdx[arenaIdx];
+								int playersInArena = envSet->state.gameStates[arenaIdx].players.size();
+
+								bool arenaBad = ContainsNonFinite(
+									&envSet->state.obs.At(playerStartIdx, 0),
+									(size_t)playersInArena * obsSize
+								);
+								if (!arenaBad)
+									continue;
+
+								numBadArenas++;
+								nanResetsThisIteration++;
+								RG_LOG(
+									"WARNING: Non-finite values in the obs of arena " << arenaIdx << ", resetting it " <<
+									"(extreme collisions can very rarely diverge the physics; " <<
+									"the arena's in-progress episode data will be discarded)"
+								);
+
+								for (int i = 0; i < playersInArena; i++)
+									trajectories[playerStartIdx + i].Clear();
+
+								envSet->ResetArena(arenaIdx);
+								envSet->state.terminals[arenaIdx] = 0;
+							}
+
+							report.Add("Env NaN Resets", numBadArenas);
+
+							// If the obs are STILL bad after resetting, the obs builder itself is broken
+							if (ContainsNonFinite(envSet->state.obs.data.data(), envSet->state.obs.data.size())) {
+								for (int i = 0; i < envSet->state.numPlayers; i++)
+									for (int j = 0; j < obsSize; j++)
+										if (!std::isfinite(envSet->state.obs.At(i, j)))
+											RG_ERR_CLOSE(
+												"Obs builder produced a NaN/inf value at obs index " << j <<
+												" (player index " << i << ", value: " << envSet->state.obs.At(i, j) << "), " <<
+												"even for a freshly-reset state.\n" <<
+												"Check your obs builder for divisions by zero, normalizations of zero-length vectors, etc."
+											);
+							}
+
+							// A reasonable training setup should only ever hit NaN resets very rarely
+							// Hitting many in one iteration means something is deterministically broken
+							if (nanResetsThisIteration > RS_MAX(envSet->arenas.size(), 16))
+								RG_ERR_CLOSE(
+									"Env state repeatedly contained NaN/inf values (" << nanResetsThisIteration << " arena resets this iteration).\n" <<
+									"Something is deterministically broken (bugged state setter, reward, or physics-breaking custom setup)."
+								);
 						}
 
 						if (!render && obsStat) {
@@ -988,6 +1044,9 @@ void GGL::Learner::Start() {
 				if (versionMgr)
 					versionMgr->OnIteration(ppo, report, totalTimesteps, prevTimesteps);
 
+				bool timestepLimitReached =
+					(config.timestepLimit > 0) && (totalTimesteps >= (uint64_t)config.timestepLimit);
+
 				if (saveQueued) {
 					if (!config.checkpointFolder.empty())
 						Save();
@@ -995,7 +1054,7 @@ void GGL::Learner::Start() {
 				}
 
 				if (!config.checkpointFolder.empty()) {
-					if (totalTimesteps / config.tsPerSave > prevTimesteps / config.tsPerSave) {
+					if (timestepLimitReached || (totalTimesteps / config.tsPerSave > prevTimesteps / config.tsPerSave)) {
 						// Auto-save
 						Save();
 					}
@@ -1033,6 +1092,11 @@ void GGL::Learner::Start() {
 						"Total Iterations"
 					}
 				);
+
+				if (timestepLimitReached) {
+					RG_LOG("Learner: Timestep limit of " << config.timestepLimit << " reached, stopping training.");
+					return;
+				}
 			}
 		}
 		

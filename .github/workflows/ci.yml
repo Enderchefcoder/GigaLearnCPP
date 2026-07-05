@@ -47,5 +47,8 @@ jobs:
       - name: Build
         run: cmake --build build -j $(nproc)
 
-      - name: Run tests
+      - name: Run unit tests
         run: ./build/GigaLearnTests
+
+      - name: Run integration test (tiny CPU training run)
+        run: ./build/GigaLearnIntegrationTest
