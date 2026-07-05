@@ -4,6 +4,9 @@ project("GigaLearnCPP" LANGUAGES CXX)
 
 option(GGL_BUILD_TESTS "Build GigaLearnCPP unit tests" OFF)
 
+# Compile for the machine you're building on (faster simulation, non-portable binaries)
+option(GGL_NATIVE_ARCH "Optimize for the host CPU architecture (-march=native / /arch:AVX2)" OFF)
+
 include_directories("${PROJECT_SOURCE_DIR}/src/")
 
 # Make sure CMake finds libtorch if it's in this directory
@@ -40,6 +43,18 @@ set_target_properties(GigaLearnCPP PROPERTIES CXX_STANDARD_REQUIRED ON)
 # Include RLGymCPP
 add_subdirectory(RLGymCPP)
 target_link_libraries(GigaLearnCPP PUBLIC RLGymCPP)
+
+if (GGL_NATIVE_ARCH)
+	message(STATUS "GigaLearnCPP: Optimizing for the host CPU (binaries won't be portable)...")
+	if (MSVC)
+		set(GGL_ARCH_FLAGS "/arch:AVX2")
+	else()
+		set(GGL_ARCH_FLAGS "-march=native")
+	endif()
+	target_compile_options(GigaLearnCPP PRIVATE ${GGL_ARCH_FLAGS})
+	target_compile_options(RLGymCPP PRIVATE ${GGL_ARCH_FLAGS})
+	target_compile_options(RocketSim PRIVATE ${GGL_ARCH_FLAGS})
+endif()
 
 # Include JSON
 target_include_directories(GigaLearnCPP PUBLIC "${PROJECT_SOURCE_DIR}/libsrc/json")

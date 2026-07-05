@@ -71,6 +71,13 @@ cmake --build build -j
 
 If your default `c++` compiler is misconfigured, explicitly select GCC with `-DCMAKE_CXX_COMPILER=g++`.
 
+### Optional build flags
+
+| Flag | Effect |
+| --- | --- |
+| `-DGGL_NATIVE_ARCH=ON` | Optimize the simulation for your exact CPU (`-march=native`). Faster collection, but the binaries won't run on other machines. |
+| `-DGGL_BUILD_TESTS=ON` | Build the unit test suite (`GigaLearnTests`). |
+
 The build produces:
 - `GigaLearnBot` (or `GigaLearnBot.exe`) — the example training executable built from `src/`
 - `GigaLearnCPP` shared library

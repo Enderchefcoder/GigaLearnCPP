@@ -261,11 +261,22 @@ void GGL::Learner::Save() {
 		RG_ERR_CLOSE("Learner::Save(): Cannot save because config.checkpointSaveFolder is not set");
 
 	std::filesystem::path saveFolder = config.checkpointFolder / std::to_string(totalTimesteps);
-	std::filesystem::create_directories(saveFolder);
+
+	// Save to a temporary folder first, then rename it into place once complete
+	// This way, a crash mid-save can't leave a corrupt checkpoint behind
+	//	(incomplete "~incomplete" folders are ignored by checkpoint loading)
+	std::filesystem::path tmpSaveFolder = saveFolder;
+	tmpSaveFolder += "~incomplete";
+
+	std::filesystem::remove_all(tmpSaveFolder);
+	std::filesystem::create_directories(tmpSaveFolder);
 
 	RG_LOG("Saving to folder " << saveFolder << "...");
-	SaveStats(saveFolder / STATS_FILE_NAME);
-	ppo->SaveTo(saveFolder);
+	SaveStats(tmpSaveFolder / STATS_FILE_NAME);
+	ppo->SaveTo(tmpSaveFolder);
+
+	std::filesystem::remove_all(saveFolder);
+	std::filesystem::rename(tmpSaveFolder, saveFolder);
 
 	// Remove old checkpoints
 	if (config.checkpointsToKeep != -1) {
