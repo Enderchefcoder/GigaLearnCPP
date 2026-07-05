@@ -24,6 +24,11 @@
 
 ### Status: COMPLETE (round 2 finished) — all items done, verified, committed, pushed, PR updated
 
+### Round 6 additions
+[X] SIGINT/SIGTERM graceful save-and-exit (verified live: single signal saves cleanly, double force-quits); works headless where Q-key doesn't
+[X] cfg.ppo.experienceOnDevice (default on): learn phase keeps experience in VRAM, no per-minibatch re-upload each epoch; indices follow device; CPU unaffected
+[X] Docs: TROUBLESHOOTING (VRAM + Ctrl+C entries), CONFIGURATION table updated
+
 ### Round 5 additions
 [X] scripts/setup_libtorch.sh/.ps1 (verified with real download) - removes THE manual setup step
 [X] Classic rewards: LiuDistancePlayerToBall, LiuDistanceBallToGoal, AlignBallGoal, FlipReset (unit-tested, formulas faithful to rlgym)
