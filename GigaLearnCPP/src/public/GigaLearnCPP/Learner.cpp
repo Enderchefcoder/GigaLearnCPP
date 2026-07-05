@@ -844,7 +844,8 @@ void GGL::Learner::Start() {
 					// Make and transpose tensors
 					torch::Tensor tStates = VEC_TO_TENSOR(combinedTraj.states).reshape({ -1, obsSize });
 					torch::Tensor tActionMasks = VEC_TO_TENSOR(combinedTraj.actionMasks).reshape({ -1, numActions });
-					torch::Tensor tActions = VEC_TO_TENSOR(combinedTraj.actions);
+					// NOTE: Actions are used as gather() indices during learning, which requires int64
+					torch::Tensor tActions = VEC_TO_TENSOR(combinedTraj.actions).to(torch::kInt64);
 					torch::Tensor tLogProbs = VEC_TO_TENSOR(combinedTraj.logProbs);
 					torch::Tensor tRewards = VEC_TO_TENSOR(combinedTraj.rewards);
 					torch::Tensor tTerminals = VEC_TO_TENSOR(combinedTraj.terminals);
