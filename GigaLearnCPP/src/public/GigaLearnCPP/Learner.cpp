@@ -614,6 +614,15 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 					"Total Iterations"
 				}
 			);
+
+			bool timestepLimitReached =
+				(config.timestepLimit > 0) && (totalTimesteps >= (uint64_t)config.timestepLimit);
+			if (timestepLimitReached) {
+				if (!config.checkpointFolder.empty())
+					Save();
+				RG_LOG("Learner: Timestep limit of " << config.timestepLimit << " reached, stopping transfer learning.");
+				return;
+			}
 		}
 
 	} catch (std::exception& e) {

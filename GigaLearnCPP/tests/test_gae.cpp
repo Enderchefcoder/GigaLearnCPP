@@ -165,6 +165,90 @@ TEST_CASE(GAE_RewardStandardizationAndClipping) {
 	CHECK_NEAR(returns[0], 4 + -6, 1e-5f);
 }
 
+// Property test: random episode structures must always match the reference implementation
+TEST_CASE(GAE_RandomizedAgainstReference) {
+	std::default_random_engine rng(0xC0FFEE);
+	auto randFloat = [&](float min, float max) {
+		return min + (rng() / (float)rng.max()) * (max - min);
+	};
+	auto randInt = [&](int min, int max) { // Max exclusive
+		return min + (int)(rng() % (max - min));
+	};
+
+	constexpr int NUM_CASES = 100;
+	for (int testCase = 0; testCase < NUM_CASES; testCase++) {
+		float gamma = randFloat(0.8f, 1.0f);
+		float lambda = randFloat(0.8f, 1.0f);
+
+		// Build a random set of episodes
+		int numEpisodes = randInt(1, 6);
+		std::vector<float> rews = {}, valPreds = {}, truncValPreds = {};
+		std::vector<int8_t> terminals = {};
+
+		struct EpisodeRef {
+			std::vector<float> rews, valPreds;
+			bool truncated;
+			float truncValPred;
+		};
+		std::vector<EpisodeRef> episodes = {};
+
+		for (int ep = 0; ep < numEpisodes; ep++) {
+			int len = randInt(1, 12);
+			bool truncated = randInt(0, 2) == 1;
+
+			EpisodeRef ref = {};
+			ref.truncated = truncated;
+
+			for (int t = 0; t < len; t++) {
+				float rew = randFloat(-2, 2), valPred = randFloat(-2, 2);
+				ref.rews.push_back(rew);
+				ref.valPreds.push_back(valPred);
+				rews.push_back(rew);
+				valPreds.push_back(valPred);
+				terminals.push_back(
+					(t == len - 1)
+					? (truncated ? RLGC::TerminalType::TRUNCATED : RLGC::TerminalType::NORMAL)
+					: RLGC::TerminalType::NOT_TERMINAL
+				);
+			}
+
+			if (truncated) {
+				ref.truncValPred = randFloat(-2, 2);
+				truncValPreds.push_back(ref.truncValPred);
+			}
+
+			episodes.push_back(ref);
+		}
+
+		torch::Tensor tAdvantages, tTargetVals, tReturns;
+		float clipPortion;
+		GAE::Compute(
+			VEC_TO_TENSOR(rews), VEC_TO_TENSOR(terminals), VEC_TO_TENSOR(valPreds),
+			truncValPreds.empty() ? torch::Tensor() : VEC_TO_TENSOR(truncValPreds),
+			tAdvantages, tTargetVals, tReturns, clipPortion,
+			gamma, lambda, 0, 0
+		);
+
+		auto advantages = TENSOR_TO_VEC<float>(tAdvantages);
+		auto targetVals = TENSOR_TO_VEC<float>(tTargetVals);
+
+		// Each episode must independently match the reference implementation
+		int offset = 0;
+		for (auto& ep : episodes) {
+			std::vector<float> expected;
+			ReferenceGAE(ep.rews, ep.valPreds, ep.truncated, ep.truncValPred, gamma, lambda, expected);
+
+			for (int t = 0; t < expected.size(); t++) {
+				CHECK_NEAR(advantages[offset + t], expected[t], 2e-4f);
+				CHECK_NEAR(targetVals[offset + t], ep.valPreds[t] + expected[t], 2e-4f);
+			}
+			offset += ep.rews.size();
+		}
+
+		CHECK_EQ(offset, (int)advantages.size());
+	}
+}
+
 TEST_CASE(GAE_RejectsIncompleteEpisodes) {
 	// The buffer must only contain complete episodes,
 	//	otherwise the last step would bootstrap from out-of-bounds memory

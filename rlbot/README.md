@@ -11,9 +11,9 @@ This folder is the [RLBot](https://rlbot.org/) bot definition that lets your tra
 ## Setup
 
 1. Install [RLBot](https://rlbot.org/) (RLBotGUI is the easiest way)
-2. Build your bot executable with an `RLBotClient::Run()` entry point:
-   - Use the **same obs builder, action parser, model architecture, tick skip, and action delay** as training
-   - Point the `InferUnit` at your checkpoint's model files
+2. Build your bot executable with an `RLBotClient::Run()` entry point — start from the ready-made example:
+   - Edit `src/rlbot_example/RLBotExampleMain.cpp` to match your training setup (obs builder, action parser, model architecture, tick skip, action delay, checkpoint path)
+   - Configure with `-DGGL_BUILD_RLBOT_EXAMPLE=ON` and build the `GigaLearnRLBot` target
 3. Add this `rlbot` folder as a bot in RLBotGUI (it reads `CppPythonAgent.cfg`)
 4. Either start your executable manually before the match, or configure auto-start (below)
 

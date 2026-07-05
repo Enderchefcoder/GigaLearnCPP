@@ -13,6 +13,7 @@
 #include <RLGymCPP/TerminalConditions/NoTouchCondition.h>
 #include <RLGymCPP/TerminalConditions/GoalScoreCondition.h>
 #include <RLGymCPP/ObsBuilders/DefaultObsPadded.h>
+#include <RLGymCPP/ObsBuilders/StackedObs.h>
 #include <RLGymCPP/StateSetters/KickoffState.h>
 #include <RLGymCPP/ActionParsers/DefaultAction.h>
 
@@ -281,7 +282,47 @@ int main(int argc, char* argv[]) {
 		delete actionParser;
 	}
 
+	auto transferCheckpointFolder = std::filesystem::temp_directory_path() / "ggl_integration_transfer";
+	std::filesystem::remove_all(transferCheckpointFolder);
+
+	{ // Phase 5: transfer-learn the trained policy into a different obs space
+		int64_t newestCheckpoint = *Utils::FindNumberedDirs(checkpointFolder).rbegin();
+
+		// The "new" bot uses frame-stacked obs (a different obs size than the old policy)
+		auto envCreateFnStacked = [](int index) {
+			EnvCreateResult result = EnvCreateFunc(index);
+			delete result.obsBuilder;
+			result.obsBuilder = new StackedObs(new DefaultObsPadded(MAX_PLAYERS_PER_TEAM), 2);
+			return result;
+		};
+
+		auto cfg = MakeTestConfig(transferCheckpointFolder);
+		cfg.timestepLimit = 1500;
+
+		Learner* learner = new Learner(envCreateFnStacked, cfg);
+
+		TransferLearnConfig tlConfig = {};
+		tlConfig.makeOldObsFn = []() -> ObsBuilder* { return new DefaultObsPadded(MAX_PLAYERS_PER_TEAM); };
+		tlConfig.makeOldActFn = []() -> ActionParser* { return new DefaultAction(); };
+
+		tlConfig.oldSharedHeadConfig.layerSizes = { 32 };
+		tlConfig.oldSharedHeadConfig.addOutputLayer = false;
+		tlConfig.oldPolicyConfig.layerSizes = { 32 };
+		tlConfig.oldModelsPath = checkpointFolder / std::to_string(newestCheckpoint);
+
+		tlConfig.batchSize = 500;
+		tlConfig.epochs = 2;
+
+		learner->StartTransferLearn(tlConfig); // Returns at cfg.timestepLimit
+
+		INTEG_CHECK(learner->totalTimesteps >= 1500);
+		INTEG_CHECK(!Utils::FindNumberedDirs(transferCheckpointFolder).empty());
+
+		delete learner;
+	}
+
 	std::filesystem::remove_all(checkpointFolder);
+	std::filesystem::remove_all(transferCheckpointFolder);
 
 	std::cout << std::string(40, '=') << std::endl;
 	std::cout << "INTEGRATION TEST PASSED" << std::endl;

@@ -2,7 +2,13 @@ cmake_minimum_required(VERSION 3.18)
 
 project("GigaLearnBot" LANGUAGES CXX)
 
+option(GGL_BUILD_RLBOT_EXAMPLE "Build the RLBot bot example executable (GigaLearnRLBot)" OFF)
+
 file(GLOB_RECURSE FILES_SRC "src/*.cpp" "src/*.h" "src/*.hpp")
+
+# The RLBot example has its own main() and builds as a separate executable
+list(FILTER FILES_SRC EXCLUDE REGEX "rlbot_example/")
+
 add_executable(GigaLearnBot ${FILES_SRC})
 
 # Set C++ version to 20
@@ -26,3 +32,16 @@ target_link_libraries(GigaLearnBot GigaLearnCPP)
 # Include RLBot
 add_subdirectory(RLBotCPP)
 target_link_libraries(GigaLearnBot RLBotCPP)
+
+# RLBot deployment example (see src/rlbot_example/RLBotExampleMain.cpp)
+if (GGL_BUILD_RLBOT_EXAMPLE)
+	add_executable(GigaLearnRLBot
+		"src/rlbot_example/RLBotExampleMain.cpp"
+		"src/RLBotClient.cpp"
+		"src/RLBotClient.h"
+	)
+	set_target_properties(GigaLearnRLBot PROPERTIES CXX_STANDARD 20)
+	set_target_properties(GigaLearnRLBot PROPERTIES CXX_STANDARD_REQUIRED ON)
+	target_include_directories(GigaLearnRLBot PRIVATE "src")
+	target_link_libraries(GigaLearnRLBot GigaLearnCPP RLBotCPP)
+endif()
