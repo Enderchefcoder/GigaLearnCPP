@@ -43,6 +43,15 @@ namespace GGL {
 
 		void StartTransferLearn(const TransferLearnConfig& transferLearnConfig);
 
+		// Runtime training-parameter adjustment (e.g. for schedules driven from the step callback)
+		// Takes effect from the next learn phase onwards
+		void SetLearningRates(float policyLR, float criticLR);
+		void SetEntropyScale(float entropyScale);
+
+		float GetPolicyLR() const;
+		float GetCriticLR() const;
+		float GetEntropyScale() const;
+
 		void StartQuitKeyThread(bool& quitPressed, std::thread& outThread);
 
 		void Save();

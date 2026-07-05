@@ -12,7 +12,7 @@
 #include <RLGymCPP/Rewards/ZeroSumReward.h>
 #include <RLGymCPP/TerminalConditions/NoTouchCondition.h>
 #include <RLGymCPP/TerminalConditions/GoalScoreCondition.h>
-#include <RLGymCPP/ObsBuilders/AdvancedObs.h>
+#include <RLGymCPP/ObsBuilders/DefaultObsPadded.h>
 #include <RLGymCPP/StateSetters/KickoffState.h>
 #include <RLGymCPP/ActionParsers/DefaultAction.h>
 
@@ -100,6 +100,8 @@ static RocketSim::FileData MakeBoxMeshFile() {
 	return data;
 }
 
+constexpr int MAX_PLAYERS_PER_TEAM = 2;
+
 static EnvCreateResult EnvCreateFunc(int index) {
 	std::vector<WeightedReward> rewards = {
 		{ new VelocityPlayerToBallReward(), 1.f },
@@ -112,13 +114,19 @@ static EnvCreateResult EnvCreateFunc(int index) {
 		new GoalScoreCondition()
 	};
 
+	// Mix 1v1 and 2v2 arenas in the same env set
+	//	(exercises the variable-player-count bookkeeping and padded obs)
+	int playersPerTeam = (index % MAX_PLAYERS_PER_TEAM) + 1;
+
 	auto arena = Arena::Create(GameMode::SOCCAR);
-	arena->AddCar(Team::BLUE);
-	arena->AddCar(Team::ORANGE);
+	for (int i = 0; i < playersPerTeam; i++) {
+		arena->AddCar(Team::BLUE);
+		arena->AddCar(Team::ORANGE);
+	}
 
 	EnvCreateResult result = {};
 	result.actionParser = new DefaultAction();
-	result.obsBuilder = new AdvancedObs();
+	result.obsBuilder = new DefaultObsPadded(MAX_PLAYERS_PER_TEAM);
 	result.stateSetter = new KickoffState();
 	result.terminalConditions = terminalConditions;
 	result.rewards = rewards;
@@ -205,7 +213,7 @@ int main(int argc, char* argv[]) {
 	{ // Phase 3: load the trained policy with InferUnit and infer actions
 		int64_t newestCheckpoint = *Utils::FindNumberedDirs(checkpointFolder).rbegin();
 
-		auto obsBuilder = new AdvancedObs();
+		auto obsBuilder = new DefaultObsPadded(MAX_PLAYERS_PER_TEAM);
 		auto actionParser = new DefaultAction();
 
 		// Determine the obs size using a synthetic 1v1 state

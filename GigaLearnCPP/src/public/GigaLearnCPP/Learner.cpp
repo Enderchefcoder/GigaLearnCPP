@@ -324,6 +324,29 @@ void GGL::Learner::Load() {
 	}
 }
 
+void GGL::Learner::SetLearningRates(float policyLR, float criticLR) {
+	config.ppo.policyLR = policyLR;
+	config.ppo.criticLR = criticLR;
+	ppo->SetLearningRates(policyLR, criticLR);
+}
+
+void GGL::Learner::SetEntropyScale(float entropyScale) {
+	config.ppo.entropyScale = entropyScale;
+	ppo->config.entropyScale = entropyScale;
+}
+
+float GGL::Learner::GetPolicyLR() const {
+	return ppo->config.policyLR;
+}
+
+float GGL::Learner::GetCriticLR() const {
+	return ppo->config.criticLR;
+}
+
+float GGL::Learner::GetEntropyScale() const {
+	return ppo->config.entropyScale;
+}
+
 void GGL::Learner::StartQuitKeyThread(bool& quitPressed, std::thread& outThread) {
 	quitPressed = false;
 
@@ -628,7 +651,35 @@ void GGL::Learner::Start() {
 				if (shouldTrainAgainstOld) {
 					// Set up training against old versions
 
-					int oldVersionIdx = RocketSim::Math::RandInt(0, versionMgr->versions.size());
+					int numVersions = versionMgr->versions.size();
+					int oldVersionIdx;
+					if (config.oldVersionRecencyBias > 0) {
+						// Weighted selection favoring recent versions:
+						//	weight = (1 - bias) ^ (version age), newest version has age 0
+						float keepChance = 1 - RS_CLAMP(config.oldVersionRecencyBias, 0, 1);
+
+						float totalWeight = 0;
+						auto weights = std::vector<float>(numVersions);
+						float curWeight = 1;
+						for (int age = 0; age < numVersions; age++) {
+							weights[numVersions - 1 - age] = curWeight;
+							totalWeight += curWeight;
+							curWeight *= keepChance;
+						}
+
+						oldVersionIdx = numVersions - 1;
+						float roll = RocketSim::Math::RandFloat(0, totalWeight);
+						for (int i = 0; i < numVersions; i++) {
+							roll -= weights[i];
+							if (roll <= 0) {
+								oldVersionIdx = i;
+								break;
+							}
+						}
+					} else {
+						oldVersionIdx = RocketSim::Math::RandInt(0, numVersions);
+					}
+
 					oldVersion = &versionMgr->versions[oldVersionIdx];
 
 					Team oldVersionTeam = Team(RocketSim::Math::RandInt(0, 2)); 

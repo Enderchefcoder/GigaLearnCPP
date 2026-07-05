@@ -92,6 +92,12 @@ endif (MSVC)
 configure_file("./python_scripts/metric_receiver.py" "${CMAKE_BINARY_DIR}/python_scripts/metric_receiver.py" COPYONLY)
 configure_file("./python_scripts/render_receiver.py" "${CMAKE_BINARY_DIR}/python_scripts/render_receiver.py" COPYONLY)
 
+# Multi-config generators (e.g. Visual Studio) put binaries in per-config subfolders,
+#	so also copy the scripts next to the built library
+add_custom_command(TARGET GigaLearnCPP POST_BUILD
+	COMMAND ${CMAKE_COMMAND} -E copy_directory
+	"${PROJECT_SOURCE_DIR}/python_scripts" "$<TARGET_FILE_DIR:GigaLearnCPP>/python_scripts")
+
 # MSVC sometimes won't link to the libtorch DLLs unless you do this
 # This is also from https://pytorch.org/cppdocs/installing.html#minimal-example
 if (MSVC)

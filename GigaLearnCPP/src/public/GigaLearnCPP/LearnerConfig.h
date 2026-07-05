@@ -72,6 +72,12 @@ namespace GGL {
 		bool trainAgainstOldVersions = false;
 		float trainAgainstOldChance = 0.15f; // Chance (from 0 - 1) that an iteration will train against an old version
 
+		// Biases old-version opponent selection toward recent versions
+		// 0 = uniform over all saved versions (default)
+		// Otherwise, each step back in version history is (1 - bias) times as likely to be picked
+		//	(e.g. 0.25 means a version is picked 75% as often as the version after it)
+		float oldVersionRecencyBias = 0;
+
 		SkillTrackerConfig skillTracker = {};
 	};
 }

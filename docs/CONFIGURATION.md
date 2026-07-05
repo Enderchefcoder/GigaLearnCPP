@@ -62,6 +62,7 @@ All learner behavior is controlled through `LearnerConfig` (which contains `PPOL
 | `maxOldVersions` | 32 | Version storage cap (oldest deleted first). |
 | `trainAgainstOldVersions` | false | Some iterations pit the current policy against a random old version (one team each). Only the current policy's experience is learned from. |
 | `trainAgainstOldChance` | 0.15 | Chance that an iteration trains against an old version. |
+| `oldVersionRecencyBias` | 0 | Biases opponent selection toward recent versions: each step back in history is `(1 - bias)` times as likely. 0 = uniform. |
 | `skillTracker` | see below | ELO-style rating of the current policy vs old versions. |
 
 ## PPOLearnerConfig (`cfg.ppo`)

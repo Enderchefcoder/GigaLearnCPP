@@ -88,6 +88,31 @@ TEST_CASE(Model_CloneMatches) {
 	delete clone;
 }
 
+TEST_CASE(Model_HalfPrecisionTracksFullPrecision) {
+	RG_NO_GRAD;
+
+	auto model = Model("test_model", MakeTestConfig(6, { 16 }, 4), torch::kCPU);
+	auto input = torch::rand({ 8, 6 });
+
+	// Half-precision (bfloat16) inference should approximate full precision
+	auto full = model.Forward(input, false);
+	auto half = model.Forward(input, true);
+	CHECK_TRUE(torch::allclose(full, half, 0.1, 0.05));
+
+	// After the parameters change, the half-precision copy must refresh
+	//	(it is lazily rebuilt whenever the optimizer steps)
+	for (auto& param : model.parameters())
+		param += 0.5f;
+	model._seqHalfOutdated = true;
+
+	auto fullUpdated = model.Forward(input, false);
+	auto halfUpdated = model.Forward(input, true);
+
+	// The outputs must have changed, and half must track the change
+	CHECK_FALSE(torch::allclose(fullUpdated, full, 0.1, 0.05));
+	CHECK_TRUE(torch::allclose(fullUpdated, halfUpdated, 0.1, 0.05));
+}
+
 TEST_CASE(PPOLearner_ActionMaskingWorks) {
 	RG_NO_GRAD;
 
