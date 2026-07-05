@@ -24,6 +24,12 @@
 
 ### Status: COMPLETE (round 2 finished) — all items done, verified, committed, pushed, PR updated
 
+### Round 4 additions
+[X] Checkpoint metadata (obs_size/num_actions/tick_skip in RUNNING_STATS.json): clear errors on env changes instead of cryptic model-size failures; integration test phase added
+[X] wandb/metric failures + failed auto-saves warn instead of killing runs (C++ and Python sides)
+[X] Learner only finalizes Python interpreter it started (safe for throwing ctors/embedding hosts)
+[X] Re-profiled post-fix: remaining time = MKL model math + bullet raycasts (fundamental); OMP_WAIT_POLICY=passive tested = within variance (not adopted); RS_MAX_SPEED evaluated and rejected (removes input sanity clamps -> NaN risk)
+
 ### Round 3 additions
 [X] PROFILED collection (gperftools): 55% CPU burned in OMP spin-wait -> torch threads limited to 1 during collection, restored for learning: collection 2.4x faster, overall +58% (27k->43k steps/s on 4-core VM). cfg.collectionTorchThreads.
 [X] Windows (MSVC) CI job: builds + all tests pass on windows-2022 (primary user platform now verified)
