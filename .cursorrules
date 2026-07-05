@@ -24,6 +24,13 @@
 
 ### Status: COMPLETE (round 2 finished) — all items done, verified, committed, pushed, PR updated
 
+### Round 5 additions
+[X] scripts/setup_libtorch.sh/.ps1 (verified with real download) - removes THE manual setup step
+[X] Classic rewards: LiuDistancePlayerToBall, LiuDistanceBallToGoal, AlignBallGoal, FlipReset (unit-tested, formulas faithful to rlgym)
+[X] StackedObs frame-stacking wrapper (per-player histories, reset seeding, unit-tested)
+[X] docs/REWARDS.md catalog; InferUnit thread-safety note; README/INSTALLATION script integration
+[X] Live validation: trained with StackedObs(AdvancedObs,3) + all new rewards -> obs 327, all reward metrics logged, 92 iters clean (58/58 tests, integration green)
+
 ### Round 4 additions
 [X] Checkpoint metadata (obs_size/num_actions/tick_skip in RUNNING_STATS.json): clear errors on env changes instead of cryptic model-size failures; integration test phase added
 [X] wandb/metric failures + failed auto-saves warn instead of killing runs (C++ and Python sides)
