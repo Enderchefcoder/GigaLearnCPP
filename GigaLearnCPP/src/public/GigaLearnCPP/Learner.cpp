@@ -43,6 +43,31 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 	if (config.tsPerSave == 0)
 		config.tsPerSave = config.ppo.tsPerItr;
 
+	{ // Validate config
+		if (config.numGames <= 0)
+			RG_ERR_CLOSE("Learner: config.numGames must be positive");
+
+		if (config.tickSkip <= 0)
+			RG_ERR_CLOSE("Learner: config.tickSkip must be positive");
+
+		if (config.actionDelay < 0 || config.actionDelay > config.tickSkip)
+			RG_ERR_CLOSE(
+				"Learner: config.actionDelay (" << config.actionDelay << ") must be from 0 to config.tickSkip (" << config.tickSkip << ")"
+			);
+
+		if (config.ppo.tsPerItr <= 0 || config.ppo.batchSize <= 0)
+			RG_ERR_CLOSE("Learner: config.ppo.tsPerItr and config.ppo.batchSize must be positive");
+
+		if (config.ppo.batchSize > config.ppo.tsPerItr)
+			RG_LOG(
+				"WARNING: config.ppo.batchSize (" << config.ppo.batchSize << ") is larger than config.ppo.tsPerItr (" << config.ppo.tsPerItr << "), " <<
+				"iterations are only guaranteed to collect tsPerItr timesteps, so learning may fail"
+			);
+
+		if (config.ppo.epochs <= 0)
+			RG_ERR_CLOSE("Learner: config.ppo.epochs must be positive");
+	}
+
 	RG_LOG("Learner::Learner():");
 
 	if (config.randomSeed == -1)
@@ -617,6 +642,9 @@ void GGL::Learner::Start() {
 				for (int i = 0; i < numPlayers; i++)
 					newPlayerIndices.push_back(i);
 			}
+
+			if (config.trainAgainstOldVersions && !render)
+				report["Trained Against Old Version"] = (oldVersion != NULL);
 
 			{
 				// Players that stopped being recorded (i.e. switched to old-version control) have their
