@@ -49,6 +49,12 @@ namespace GGL {
 		// This can stabilize training when advantage magnitudes vary a lot between iterations,
 		//	but it also discards some information about how good an action really was
 		bool normalizeAdvantages = false;
+
+		// If the average KL divergence of an epoch exceeds (1.5 * targetKLDiv),
+		//	remaining epochs are skipped for that iteration
+		// This is a common PPO safeguard against destructively large policy updates
+		// Set to 0 to disable (default)
+		float targetKLDiv = 0;
 		
 		// Temperature of the policy's softmax distribution
 		float policyTemperature = 1;

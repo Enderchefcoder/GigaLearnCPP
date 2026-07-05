@@ -18,5 +18,7 @@ namespace RLGC {
 		// If this terminal condition truncates episode
 		// You should use truncation if the terminal condition is not part of the game (such as timeout conditions)
 		virtual bool IsTruncation() = 0;
+
+		virtual ~TerminalCondition() = default;
 	};
 }

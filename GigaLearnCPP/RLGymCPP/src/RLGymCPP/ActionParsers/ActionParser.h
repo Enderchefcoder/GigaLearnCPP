@@ -16,5 +16,7 @@ namespace RLGC {
 		virtual std::vector<uint8_t> GetActionMask(const Player& player, const GameState& state) {
 			return std::vector<uint8_t>(GetActionAmount(), true);
 		}
+
+		virtual ~ActionParser() = default;
 	};
 }

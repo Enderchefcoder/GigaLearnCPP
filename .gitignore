@@ -59,3 +59,7 @@ libtorch
 
 /checkpoints
 /wandb
+
+# Local metric logs (fallback when wandb isn't installed)
+/metrics
+metrics/*.jsonl

@@ -1,36 +1,30 @@
-# CPPExampleBot
+# RLBot Integration
 
-### Prerequisites
- - Python 3.6 or 3.7
- - CMake 3.8 and higher
- - Compiler with c++17 support
-   - GCC 8.1 and higher (9.1 if using mingw)
-   - Visual studion 2017 and higher
-   - Clang 7 and higher (not tested)
+This folder is the [RLBot](https://rlbot.org/) bot definition that lets your trained GigaLearn model play in actual Rocket League matches. It is based on [kipje13's CPPExampleBot](https://github.com/kipje13/CPPExampleBot).
 
-## How to use:
- - Make sure you've installed [Python 3.7 64 bit](https://www.python.org/downloads/). During installation:
-   - Select "Add Python to PATH"
-   - Make sure pip is included in the installation
- - Clone this repository by running: `git clone https://github.com/kipje13/CPPExampleBot.git --recursive`
- - Ensure that rlbot is installed on python by running `rlbot/run.bat`. You can shut it down again if it works.
- - Make sure you have CMake. If you don't have it, visit https://cmake.org/download/ and run the Windows win64-x64 Installer.
- - If you'd like to use Visual Studio for development:
-   - Download Visual Studio from https://visualstudio.microsoft.com/.
-   - In a command prompt (use a fresh one if you just installed cmake), navigate to the folder and run `cmake .`
-   - Open Visual Studio and open the .sln file which now exists in the folder.
-   - Confirm that Build->Build Solution works.
-   - Right click on CPPExampleBot in the solution explorer and choose 'Set as StartUp Project'
-   - Start a match by executing `rlbot/run.bat`
-   - Choose Debug->Start Debugging (or F5), or press the green play button in Visual Studio.
-   - Open up examplebot.cc and start changing stuff! Visual Studio has a restart button you can press (or Ctrl+Shift+F5) when you want to recompile and try your new changes.
- 
+## How it works
+
+- `CppPythonAgent.py` is a thin Python agent that RLBot launches; it forwards match info to your C++ executable over a local socket
+- Your executable calls `RLBotClient::Run(params)` (see `src/RLBotClient.h`) with an `InferUnit` that loads your trained policy
+- `port.cfg` must contain the same port you pass in `RLBotParams::port`
+
+## Setup
+
+1. Install [RLBot](https://rlbot.org/) (RLBotGUI is the easiest way)
+2. Build your bot executable with an `RLBotClient::Run()` entry point:
+   - Use the **same obs builder, action parser, model architecture, tick skip, and action delay** as training
+   - Point the `InferUnit` at your checkpoint's model files
+3. Add this `rlbot` folder as a bot in RLBotGUI (it reads `CppPythonAgent.cfg`)
+4. Either start your executable manually before the match, or configure auto-start (below)
+
 ## Auto-start
-The rlbot framework has the ability to launch the bot executable automatically. This is usefull when sharing your bot and usually required when you enter a tournament.
 
-In order to get auto-starting to work you will need to do the following things.
- - Build your bot executable.
- - Set the `cpp_executable_path` field in `rlbot/CppPythonAgent.cfg` so it points to the bot executable. It is recommended to copy your bot executable to the `rlbot` folder to make this process easier.
- 
-## Notes:
-  - People might have issues when trying to run your bot if you have compiled it in debug mode. It is better to compile in release mode when you want to share your bot with others.
+The RLBot framework can launch your bot executable automatically — useful when sharing your bot and usually required for tournaments:
+
+1. Build your bot executable (in **Release** mode)
+2. Set the `cpp_executable_path` field in `rlbot/CppPythonAgent.cfg` to point to the executable (copying the executable into this folder keeps the path simple)
+
+## Notes
+
+- Compile in release mode when sharing your bot — debug builds require debug runtimes that other people usually don't have
+- Bot appearance is configured in `appearance.cfg`, name/description in `CppPythonAgent.cfg`

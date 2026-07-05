@@ -191,6 +191,9 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 		avgRatio,
 		avgClip;
 
+	// Per-epoch KL accumulator (only used for targetKLDiv early stopping)
+	MetricAccum epochDivergence;
+
 	// Save parameters first
 	auto policyBefore = models["policy"]->CopyParams();
 	auto criticBefore = models["critic"]->CopyParams();
@@ -198,6 +201,8 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 	bool trainPolicy = config.policyLR != 0;
 	bool trainCritic = config.criticLR != 0;
 	bool trainSharedHead = models["shared_head"] && (trainPolicy || trainCritic);
+
+	int epochsRan = 0;
 
 	for (int epoch = 0; epoch < config.epochs; epoch++) {
 
@@ -295,7 +300,10 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 
 						auto logRatio = logProbs - oldProbs;
 						auto klTensor = (exp(logRatio) - 1) - logRatio;
-						avgDivergence.Add(klTensor.mean());
+						auto klMean = klTensor.mean();
+						avgDivergence.Add(klMean);
+						if (config.targetKLDiv > 0)
+							epochDivergence.Add(klMean);
 
 						auto clipFraction = mean((abs(ratio - 1) > config.clipRange).to(kFloat));
 						avgClip.Add(clipFraction);
@@ -335,7 +343,22 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 
 			models.StepOptims();
 		}
+
+		epochsRan++;
+
+		// Optional early stopping: skip remaining epochs if the policy moved too far
+		//	(1.5x multiplier is the common heuristic, e.g. SB3)
+		if (config.targetKLDiv > 0 && trainPolicy) {
+			float epochKL = epochDivergence.Get();
+			epochDivergence = {};
+
+			if (epochKL > 1.5f * config.targetKLDiv)
+				break;
+		}
 	}
+
+	if (config.targetKLDiv > 0)
+		report["Epochs Ran"] = epochsRan;
 
 	// Compute magnitude of updates made to the policy and value estimator
 	auto policyAfter = models["policy"]->CopyParams();
