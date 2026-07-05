@@ -72,6 +72,7 @@ For the full walkthrough (prerequisites, collision meshes, CUDA, wandb), read:
 | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Your first training run, explained line by line |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Every config option, with guidance |
 | [docs/REWARDS.md](docs/REWARDS.md) | Catalog of built-in rewards and custom reward guidance |
+| [docs/TRAINING_GUIDE.md](docs/TRAINING_GUIDE.md) | The training playbook: stages, metrics to watch, failure modes |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How collection, learning, and self-play work internally |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Fixes for common setup and runtime issues |
 | [docs/MIGRATING.md](docs/MIGRATING.md) | Porting rewards/obs builders from RLGymPPO-CPP |

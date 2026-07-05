@@ -155,6 +155,7 @@ See `rlbot/README.md` for setting up the RLBot side (config files, auto-start).
 
 ## Where to go next
 
+- [TRAINING_GUIDE.md](TRAINING_GUIDE.md) — the playbook: training stages, metrics to watch, and common failure modes
 - [REWARDS.md](REWARDS.md) — the built-in reward catalog and custom reward guidance (reward design is where bots are made)
 - [CONFIGURATION.md](CONFIGURATION.md) — every option explained, including self-play, skill rating, and transfer learning
 - [ARCHITECTURE.md](ARCHITECTURE.md) — what actually happens each iteration
