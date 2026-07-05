@@ -28,13 +28,32 @@ All dependencies (RocketSim, RLGymCPP, pybind11, RLBotCPP, nlohmann/json, thread
 
 ## 3. Install libtorch
 
+The setup scripts download and place libtorch automatically:
+
+```bash
+# Linux
+./scripts/setup_libtorch.sh          # CPU-only
+./scripts/setup_libtorch.sh cu124    # CUDA 12.4 (recommended for training, needs matching CUDA toolkit)
+```
+
+```powershell
+# Windows (PowerShell)
+./scripts/setup_libtorch.ps1         # CPU-only
+./scripts/setup_libtorch.ps1 cu124   # CUDA 12.4
+```
+
+<details>
+<summary>Manual installation</summary>
+
 Download libtorch from https://pytorch.org/get-started/locally/ (select **LibTorch** as the package and **C++/Java** as the language):
 
 - **For NVIDIA GPU training (recommended):** pick the CUDA version matching your installed CUDA toolkit
 - **For CPU-only training or inference:** pick the CPU version
 - On Windows, download the **Release** build (the Debug build is separate)
 
-Extract the archive so that the `libtorch` folder sits inside the `GigaLearnCPP` folder:
+</details>
+
+Either way, the `libtorch` folder must end up inside the `GigaLearnCPP` folder:
 
 ```
 GigaLearnCPP/

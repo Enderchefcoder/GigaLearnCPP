@@ -96,6 +96,108 @@ TEST_CASE(Reward_GetNameIsReadable) {
 	delete wrapped;
 }
 
+TEST_CASE(LiuDistanceRewards) {
+	auto state = MakeState2v2();
+	auto& player = state.players[0]; // Blue
+
+	{
+		LiuDistancePlayerToBallReward reward = {};
+
+		// Touching the ball -> ~1
+		state.ball.pos = Vec(0, 0, CommonValues::BALL_RADIUS);
+		player.pos = Vec(0, 0, CommonValues::BALL_RADIUS); // Dist compensated by ball radius
+		float atBall = reward.GetReward(player, state, false);
+		CHECK_NEAR(atBall, 1, 0.05f);
+
+		// Farther away -> smaller, but still positive
+		player.pos = Vec(0, -4000, 17);
+		float farAway = reward.GetReward(player, state, false);
+		CHECK_TRUE(farAway < atBall);
+		CHECK_TRUE(farAway > 0);
+	}
+
+	{
+		LiuDistanceBallToGoalReward reward = {};
+
+		// Ball at the orange goal line -> high for blue
+		state.ball.pos = Vec(0, CommonValues::BACK_WALL_Y - CommonValues::BALL_RADIUS, 93);
+		float nearGoal = reward.GetReward(player, state, false);
+
+		state.ball.pos = Vec(0, -3000, 93);
+		float farFromGoal = reward.GetReward(player, state, false);
+
+		CHECK_TRUE(nearGoal > 0.9f);
+		CHECK_TRUE(farFromGoal < nearGoal);
+
+		// The same ball position is near blue's target but far from orange's target
+		// (NOTE: The Liu falloff is gentle; even across the whole field it only drops to ~0.4)
+		auto& orangePlayer = state.players[2];
+		LiuDistanceBallToGoalReward orangeReward = {};
+		state.ball.pos = Vec(0, CommonValues::BACK_WALL_Y - CommonValues::BALL_RADIUS, 93);
+		float orangeNearOwnGoal = orangeReward.GetReward(orangePlayer, state, false);
+		CHECK_TRUE(orangeNearOwnGoal < 0.6f);
+		CHECK_TRUE(orangeNearOwnGoal < nearGoal - 0.3f);
+	}
+}
+
+TEST_CASE(AlignBallGoalReward_Positioning) {
+	auto state = MakeState2v2();
+	auto& player = state.players[0]; // Blue (attacks +Y goal)
+
+	AlignBallGoalReward reward = {};
+
+	// Perfectly aligned attack: own goal -> player -> ball -> opponent goal, all on the Y axis
+	player.pos = Vec(0, -1000, 17);
+	state.ball.pos = Vec(0, 0, 93);
+	float aligned = reward.GetReward(player, state, false);
+	CHECK_TRUE(aligned > 0.9f);
+
+	// Player on the wrong side of the ball (between ball and opponent goal, facing own goal)
+	player.pos = Vec(0, 1000, 17);
+	state.ball.pos = Vec(0, 0, 93);
+	float wrongSide = reward.GetReward(player, state, false);
+	CHECK_TRUE(wrongSide < -0.9f);
+
+	// Zero weights -> zero reward
+	AlignBallGoalReward zeroReward = AlignBallGoalReward(0, 0);
+	CHECK_NEAR(zeroReward.GetReward(player, state, false), 0, 1e-6f);
+}
+
+TEST_CASE(FlipResetReward_TriggersOnAcquisition) {
+	auto state = MakeState2v2();
+	auto& player = state.players[0];
+	Player prevPlayer = player;
+	player.prev = &prevPlayer;
+
+	auto fnSetFlipReset = [](Player& p, bool hasReset) {
+		// HasFlipReset() == !isOnGround && HasFlipOrJump() && !hasJumped
+		p.isOnGround = false;
+		p.hasJumped = !hasReset;
+		p.hasFlipped = !hasReset;
+		p.hasDoubleJumped = !hasReset;
+		p.airTimeSinceJump = 0;
+	};
+
+	FlipResetReward reward = {};
+
+	// No reset before, no reset now -> 0
+	fnSetFlipReset(prevPlayer, false);
+	fnSetFlipReset(player, false);
+	CHECK_NEAR(reward.GetReward(player, state, false), 0, 1e-6f);
+
+	// Just obtained a reset -> 1
+	fnSetFlipReset(prevPlayer, false);
+	fnSetFlipReset(player, true);
+	CHECK_NEAR(reward.GetReward(player, state, false), 1, 1e-6f);
+
+	// Still holding the reset from before -> 0 (only the acquisition is rewarded)
+	fnSetFlipReset(prevPlayer, true);
+	fnSetFlipReset(player, true);
+	CHECK_NEAR(reward.GetReward(player, state, false), 0, 1e-6f);
+
+	player.prev = NULL;
+}
+
 TEST_CASE(CommonRewards_BasicValues) {
 	auto state = MakeState2v2();
 	state.ball.pos = Vec(0, 0, CommonValues::BALL_RADIUS);

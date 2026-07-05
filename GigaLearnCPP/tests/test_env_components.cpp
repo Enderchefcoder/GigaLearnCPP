@@ -4,6 +4,7 @@
 #include <RLGymCPP/Gamestates/StateUtil.h>
 #include <RLGymCPP/ObsBuilders/AdvancedObs.h>
 #include <RLGymCPP/ObsBuilders/DefaultObsPadded.h>
+#include <RLGymCPP/ObsBuilders/StackedObs.h>
 #include <RLGymCPP/TerminalConditions/NoTouchCondition.h>
 #include <RLGymCPP/StateSetters/CombinedState.h>
 
@@ -117,6 +118,71 @@ TEST_CASE(DefaultObsPadded_SizeInvariantAcrossTeamSizes) {
 
 	CHECK_EQ(size1v1, size2v2);
 	CHECK_EQ(size2v2, size3v3);
+}
+
+// Test obs builder that returns a single, controllable value
+class CounterObs : public ObsBuilder {
+public:
+	float value = 0;
+	FList BuildObs(const Player& player, const GameState& state) override {
+		return { value };
+	}
+};
+
+TEST_CASE(StackedObs_StacksAndShifts) {
+	constexpr int NUM_STACKS = 3;
+
+	auto counterObs = new CounterObs();
+	StackedObs stacked = StackedObs(counterObs, NUM_STACKS);
+
+	auto state = MakeState(1);
+	auto& player = state.players[0];
+
+	stacked.Reset(state);
+
+	// First build: history is seeded with the current obs
+	counterObs->value = 1;
+	auto obs1 = stacked.BuildObs(player, state);
+	CHECK_EQ(obs1.size(), NUM_STACKS);
+	CHECK_EQ(obs1[0], 1); CHECK_EQ(obs1[1], 1); CHECK_EQ(obs1[2], 1);
+
+	// Subsequent builds: newest first, older frames shift back
+	counterObs->value = 2;
+	auto obs2 = stacked.BuildObs(player, state);
+	CHECK_EQ(obs2[0], 2); CHECK_EQ(obs2[1], 1); CHECK_EQ(obs2[2], 1);
+
+	counterObs->value = 3;
+	auto obs3 = stacked.BuildObs(player, state);
+	CHECK_EQ(obs3[0], 3); CHECK_EQ(obs3[1], 2); CHECK_EQ(obs3[2], 1);
+
+	counterObs->value = 4;
+	auto obs4 = stacked.BuildObs(player, state);
+	CHECK_EQ(obs4[0], 4); CHECK_EQ(obs4[1], 3); CHECK_EQ(obs4[2], 2);
+
+	// Histories are per-player
+	auto& otherPlayer = state.players[1];
+	counterObs->value = 10;
+	auto otherObs = stacked.BuildObs(otherPlayer, state);
+	CHECK_EQ(otherObs[0], 10); CHECK_EQ(otherObs[1], 10); CHECK_EQ(otherObs[2], 10);
+
+	// Reset clears the history
+	stacked.Reset(state);
+	counterObs->value = 5;
+	auto obs5 = stacked.BuildObs(player, state);
+	CHECK_EQ(obs5[0], 5); CHECK_EQ(obs5[1], 5); CHECK_EQ(obs5[2], 5);
+}
+
+TEST_CASE(StackedObs_SingleStackIsPassthrough) {
+	auto counterObs = new CounterObs();
+	StackedObs stacked = StackedObs(counterObs, 1);
+
+	auto state = MakeState(1);
+	stacked.Reset(state);
+
+	counterObs->value = 7;
+	auto obs = stacked.BuildObs(state.players[0], state);
+	CHECK_EQ(obs.size(), 1);
+	CHECK_EQ(obs[0], 7);
 }
 
 TEST_CASE(NoTouchCondition_TruncatesAfterTimeout) {

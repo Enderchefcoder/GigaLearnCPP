@@ -55,7 +55,8 @@ It is the successor to [RLGymPPO-CPP](https://github.com/ZealanL/RLGymPPO-CPP), 
 git clone https://github.com/Enderchefcoder/GigaLearnCPP
 cd GigaLearnCPP
 
-# Place libtorch at GigaLearnCPP/libtorch (see docs/INSTALLATION.md)
+# Download libtorch (use "cu124" etc. instead of no argument for CUDA training builds)
+./scripts/setup_libtorch.sh
 
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
@@ -70,6 +71,7 @@ For the full walkthrough (prerequisites, collision meshes, CUDA, wandb), read:
 | [docs/INSTALLATION.md](docs/INSTALLATION.md) | Prerequisites, libtorch setup, building on Windows & Linux |
 | [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Your first training run, explained line by line |
 | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Every config option, with guidance |
+| [docs/REWARDS.md](docs/REWARDS.md) | Catalog of built-in rewards and custom reward guidance |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How collection, learning, and self-play work internally |
 | [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Fixes for common setup and runtime issues |
 | [docs/MIGRATING.md](docs/MIGRATING.md) | Porting rewards/obs builders from RLGymPPO-CPP |
