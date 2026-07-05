@@ -24,6 +24,12 @@
 
 ### Status: COMPLETE (round 2 finished) — all items done, verified, committed, pushed, PR updated
 
+### Round 7 additions
+[X] UBSan find + fix: btWheelInfo left RaycastInfo/dynamics fields uninitialized (first-tick car behavior read stack garbage; nondeterministic). Upstream bullet quirk.
+[X] UBSan CI job (Linux, -fno-sanitize-recover, unit + integration) - 3 CI jobs all green
+[X] docs/TRAINING_GUIDE.md: metric health table, stage playbook, failure modes, scaling
+[X] 64-min all-features soak (incl. StackedObs, new rewards, recency bias): 83.4M steps, 16k iters, 0 errors, RSS 277->260MB (no leak), 5 versions rotated correctly; ended via SIGTERM -> saved checkpoint at 83,885,760 and exited cleanly
+
 ### Round 6 additions
 [X] SIGINT/SIGTERM graceful save-and-exit (verified live: single signal saves cleanly, double force-quits); works headless where Q-key doesn't
 [X] cfg.ppo.experienceOnDevice (default on): learn phase keeps experience in VRAM, no per-minibatch re-upload each epoch; indices follow device; CPU unaffected
