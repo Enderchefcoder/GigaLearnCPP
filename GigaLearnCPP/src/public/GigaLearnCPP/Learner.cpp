@@ -19,7 +19,29 @@
 #include <private/GigaLearnCPP/Util/WelfordStat.h>
 #include "Util/AvgTracker.h"
 
+#include <csignal>
+
 using namespace RLGC;
+
+// Set by SIGINT/SIGTERM so training can save and exit at the end of the iteration
+// (Must be a plain flag: only async-signal-safe operations are allowed in handlers)
+static volatile std::sig_atomic_t g_StopSignalReceived = 0;
+
+static void _StopSignalHandler(int signum) {
+	if (g_StopSignalReceived) {
+		// Second signal: the user really wants out, stop immediately
+		std::signal(signum, SIG_DFL);
+		std::raise(signum);
+		return;
+	}
+
+	g_StopSignalReceived = 1;
+}
+
+static void _InstallStopSignalHandlers() {
+	std::signal(SIGINT, _StopSignalHandler);
+	std::signal(SIGTERM, _StopSignalHandler);
+}
 
 GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbackFn stepCallback) :
 	envCreateFn(envCreateFn), config(config), stepCallback(stepCallback)
@@ -455,6 +477,9 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 		std::thread keyPressThread;
 		StartQuitKeyThread(saveQueued, keyPressThread);
 
+		// Ctrl+C / SIGTERM also save-and-quit at the end of the iteration
+		_InstallStopSignalHandlers();
+
 		// See config.collectionTorchThreads (same reasoning as the main training loop)
 		int defaultTorchThreads = at::get_num_threads();
 		bool limitCollectionTorchThreads = (config.collectionTorchThreads > 0);
@@ -552,6 +577,11 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 			if (versionMgr)
 				versionMgr->OnIteration(ppo, report, totalTimesteps, prevTimesteps);
 
+			if (g_StopSignalReceived) {
+				RG_LOG("Stop signal received (Ctrl+C/SIGTERM), saving and exiting...");
+				saveQueued = true;
+			}
+
 			if (saveQueued) {
 				if (!config.checkpointFolder.empty())
 					Save();
@@ -622,6 +652,10 @@ void GGL::Learner::Start() {
 		bool saveQueued;
 		std::thread keyPressThread;
 		StartQuitKeyThread(saveQueued, keyPressThread);
+
+		// Ctrl+C / SIGTERM also save-and-quit at the end of the iteration
+		//	(a second signal force-quits immediately)
+		_InstallStopSignalHandlers();
 
 		ExperienceBuffer experience = ExperienceBuffer(config.randomSeed, torch::kCPU);
 
@@ -1121,6 +1155,13 @@ void GGL::Learner::Start() {
 					experience.data.states = tStates;
 					experience.data.advantages = tAdvantages;
 					experience.data.targetValues = tTargetVals;
+
+					if (config.ppo.experienceOnDevice && ppo->device.is_cuda()) {
+						// Upload the whole iteration's experience once,
+						//	instead of once per minibatch per epoch
+						for (auto* t = experience.data.begin(); t != experience.data.end(); t++)
+							*t = t->to(ppo->device, true);
+					}
 				}
 
 				// Free CUDA cache
@@ -1153,6 +1194,11 @@ void GGL::Learner::Start() {
 
 				bool timestepLimitReached =
 					(config.timestepLimit > 0) && (totalTimesteps >= (uint64_t)config.timestepLimit);
+
+				if (g_StopSignalReceived) {
+					RG_LOG("Stop signal received (Ctrl+C/SIGTERM), saving and exiting...");
+					saveQueued = true;
+				}
 
 				if (saveQueued) {
 					if (!config.checkpointFolder.empty())

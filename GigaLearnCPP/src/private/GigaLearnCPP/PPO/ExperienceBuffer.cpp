@@ -40,6 +40,10 @@ std::vector<GGL::ExperienceTensors> GGL::ExperienceBuffer::GetAllBatchesShuffled
 		std::shuffle(indices, indices + expSize, rng);
 	}
 
+	// index_select() requires the indices to be on the same device as the experience
+	//	(the experience may live on the GPU, see PPOLearnerConfig::experienceOnDevice)
+	tIndices = tIndices.to(data.states.device());
+
 	// Get a sample set from each of the batches
 	std::vector<ExperienceTensors> result;
 	for (int64_t startIdx = 0; startIdx + batchSize <= expSize; startIdx += batchSize) {

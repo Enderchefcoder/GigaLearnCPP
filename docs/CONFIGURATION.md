@@ -76,6 +76,7 @@ All learner behavior is controlled through `LearnerConfig` (which contains `PPOL
 | `batchSize` | 50,000 | Timesteps per PPO batch. Must be ≤ collected timesteps. |
 | `miniBatchSize` | 0 | Splits batches into minibatches for gradient accumulation (reduces VRAM). 0 = use `batchSize`. Must divide `batchSize` evenly. |
 | `overbatching` | true | The final batch absorbs leftover experience (up to 2x batch size) instead of discarding it. |
+| `experienceOnDevice` | true | Keep the whole iteration's experience in VRAM for the learn phase instead of re-uploading every minibatch each epoch. Disable if VRAM-constrained with very large `tsPerItr`/obs. No effect on CPU. |
 | `epochs` | 2 | Learning passes over each iteration's experience. 1-3 is typical. |
 | `maxEpisodeDuration` | 120 | Max episode length in seconds before the episode is truncated in the experience buffer (the env keeps running). |
 

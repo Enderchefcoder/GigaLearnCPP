@@ -19,6 +19,13 @@ namespace GGL {
 		// This will only happen if the amount of remaining experience is < batchSize*2.
 		bool overbatching = true;
 
+		// Keep the whole iteration's experience on the GPU for the learn phase,
+		//	instead of re-uploading every minibatch each epoch
+		// Faster (especially with multiple epochs), but holds the full experience in VRAM
+		//	(disable if you run out of VRAM with very large tsPerItr/obs sizes)
+		// Has no effect when learning on CPU
+		bool experienceOnDevice = true;
+
 		double maxEpisodeDuration = 120; // In seconds
 
 		// Actions with the highest probability are always chosen, instead of being more likely

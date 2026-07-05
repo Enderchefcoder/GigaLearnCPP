@@ -60,7 +60,10 @@ Extreme collisions can very rarely diverge RocketSim's physics to NaN. The learn
 Your obs builder produced garbage — the index tells you which obs element. Common causes: normalizing a zero-length vector, dividing by a value that can be zero, uninitialized fields.
 
 **Out of VRAM during learning**
-Lower `cfg.ppo.miniBatchSize` (gradient accumulation keeps the math identical). Collection VRAM scales with `numGames`; lower it if inference itself runs out.
+Lower `cfg.ppo.miniBatchSize` (gradient accumulation keeps the math identical). If still short, set `cfg.ppo.experienceOnDevice = false` (trades some learn-phase speed for holding less data in VRAM). Collection VRAM scales with `numGames`; lower it if inference itself runs out.
+
+**Training doesn't save on Ctrl+C**
+It does now: SIGINT/SIGTERM queue a save-and-exit at the end of the current iteration (press Ctrl+C again to force-quit immediately without saving). The `Q` key also still works in interactive terminals.
 
 **Entropy crashes toward 0 / bot plays the same action**
 Raise `entropyScale`. Also check your rewards aren't wildly imbalanced (one huge reward dominating).
