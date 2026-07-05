@@ -1,5 +1,7 @@
 # GigaLearnCPP
 
+[![CI](https://github.com/Enderchefcoder/GigaLearnCPP/actions/workflows/ci.yml/badge.svg)](https://github.com/Enderchefcoder/GigaLearnCPP/actions/workflows/ci.yml)
+
 **GigaLearn** is a high-performance C++ machine learning framework for training Rocket League bots with [PPO](https://en.wikipedia.org/wiki/Proximal_policy_optimization), built on [RocketSim](https://github.com/ZealanL/RocketSim).
 
 It is the successor to [RLGymPPO-CPP](https://github.com/ZealanL/RLGymPPO-CPP), with a redesigned environment API, a monolithic single-process inference model, and far higher throughput.

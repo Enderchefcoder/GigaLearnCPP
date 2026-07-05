@@ -106,5 +106,6 @@ endif (MSVC)
 
 # Unit tests
 if (GGL_BUILD_TESTS)
+	enable_testing()
 	add_subdirectory(tests)
 endif()

@@ -16,6 +16,10 @@ set(LIBRARY_OUTPUT_PATH "${CMAKE_BINARY_DIR}")
 set(EXECUTABLE_OUTPUT_PATH "${CMAKE_BINARY_DIR}")
 
 # Include GigaLearnCPP
+# (With -DGGL_BUILD_TESTS=ON, unit tests build too and can be run with ctest)
+if (GGL_BUILD_TESTS)
+	enable_testing()
+endif()
 add_subdirectory(GigaLearnCPP)
 target_link_libraries(GigaLearnBot GigaLearnCPP)
 

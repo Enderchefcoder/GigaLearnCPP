@@ -100,6 +100,15 @@ RLGC::EnvSet::EnvSet(const EnvSetConfig& config) : config(config) {
 			RG_ERR_CLOSE("EnvSet: Env creation function returned a NULL arena for env " << i);
 		if (!obsBuilders[i] || !actionParsers[i] || !stateSetters[i])
 			RG_ERR_CLOSE("EnvSet: Env creation function did not set all required fields for env " << i);
+
+		// All parsers must expose the same action space (there is one policy for all envs)
+		int actionAmount = actionParsers[i]->GetActionAmount();
+		int firstActionAmount = actionParsers[0]->GetActionAmount();
+		if (actionAmount != firstActionAmount)
+			RG_ERR_CLOSE(
+				"EnvSet: All action parsers must have the same number of actions, " <<
+				"but env 0 has " << firstActionAmount << " and env " << i << " has " << actionAmount
+			);
 	}
 
 	state.Resize(arenas);
@@ -254,8 +263,17 @@ void RLGC::EnvSet::StepSecondHalf(const IList& actionIndices, bool async) {
 
 		// Update observations
 		{
-			for (int i = 0; i < gs.players.size(); i++)
-				state.obs.Set(playerStartIdx + i, obsBuilders[arenaIdx]->BuildObs(gs.players[i], gs));
+			for (int i = 0; i < gs.players.size(); i++) {
+				auto obs = obsBuilders[arenaIdx]->BuildObs(gs.players[i], gs);
+				if (obs.size() != state.obs.size[1])
+					RG_ERR_CLOSE(
+						"EnvSet: Obs builder for env " << arenaIdx << " produced an obs of size " << obs.size() <<
+						", but the expected obs size is " << state.obs.size[1] << ".\n" <<
+						"All obs builders must always produce the same obs size " <<
+						"(check for varying player counts without padding)."
+					);
+				state.obs.Set(playerStartIdx + i, obs);
+			}
 		}
 
 		// Update action masks
@@ -291,6 +309,13 @@ void RLGC::EnvSet::ResetArena(int index) {
 
 		// Update obs
 		auto obs = obsBuilders[index]->BuildObs(newState.players[i], newState);
+		if (obs.size() != state.obs.size[1])
+			RG_ERR_CLOSE(
+				"EnvSet: Obs builder for env " << index << " produced an obs of size " << obs.size() <<
+				", but the expected obs size is " << state.obs.size[1] << ".\n" <<
+				"All obs builders must always produce the same obs size " <<
+				"(check for varying player counts without padding)."
+			);
 		state.obs.Set(playerStartIdx + i, obs);
 
 		// Update action mask
