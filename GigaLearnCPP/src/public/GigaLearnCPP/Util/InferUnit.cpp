@@ -2,6 +2,7 @@
 
 #include <GigaLearnCPP/Util/Models.h>
 #include <GigaLearnCPP/PPO/PPOLearner.h>
+#include <private/GigaLearnCPP/FrameworkTorch.h>
 
 GGL::InferUnit::InferUnit(
 	RLGC::ObsBuilder* obsBuilder, int obsSize, RLGC::ActionParser* actionParser,
@@ -61,8 +62,8 @@ std::vector<RLGC::Action> GGL::InferUnit::BatchInferActions(const std::vector<RL
 
 		auto device = useGPU ? torch::kCUDA : torch::kCPU;
 
-		auto tObs = torch::tensor(allObs).reshape({(int64_t)players.size(), obsSize});
-		auto tActionMasks = torch::tensor(allActionMasks).reshape({(int64_t)players.size(), this->actionParser->GetActionAmount()});
+		auto tObs = VEC_TO_TENSOR(allObs).reshape({(int64_t)players.size(), obsSize});
+		auto tActionMasks = VEC_TO_TENSOR(allActionMasks).reshape({(int64_t)players.size(), this->actionParser->GetActionAmount()});
 
 		tObs = tObs.to(device);
 		tActionMasks = tActionMasks.to(device);

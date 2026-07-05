@@ -241,16 +241,16 @@ void GGL::PolicyVersionManager::RunSkillMatches(PPOLearner* ppo, Report& report)
 		skill.envSet->StepFirstHalf(true);
 
 		torch::Tensor tNewActions, tOldActions;
-		torch::Tensor _tLogProbs;
 
+		// NOTE: Log probs aren't needed for skill matches
 		PPOLearner::InferActionsFromModels(
 			ppo->models, tNewStates.to(ppo->device, true), tNewActionMasks.to(ppo->device, true), 
 			skill.config.deterministic, ppo->config.policyTemperature, ppo->config.useHalfPrecision, 
-			&tNewActions, &_tLogProbs);
+			&tNewActions, NULL);
 		PPOLearner::InferActionsFromModels(
 			oldVersion.models, tOldStates.to(ppo->device, true), tOldActionMasks.to(ppo->device, true), 
 			skill.config.deterministic, ppo->config.policyTemperature, ppo->config.useHalfPrecision,
-			&tOldActions, &_tLogProbs);
+			&tOldActions, NULL);
 
 		auto newActions = TENSOR_TO_VEC<int>(tNewActions);
 		auto oldActions = TENSOR_TO_VEC<int>(tOldActions);

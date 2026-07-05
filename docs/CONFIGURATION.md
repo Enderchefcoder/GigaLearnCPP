@@ -9,6 +9,7 @@ All learner behavior is controlled through `LearnerConfig` (which contains `PPOL
 | Field | Default | Description |
 | --- | --- | --- |
 | `numGames` | 300 | Parallel arenas. Scale to your CPU/RAM; higher improves GPU inference batching. |
+| `timestepLimit` | 0 | Stop training (with a final save) once this many total timesteps are reached. 0 = train forever. |
 | `tickSkip` | 8 | Physics ticks per policy action. 8 = 15 actions/sec (the standard). |
 | `actionDelay` | 7 | Ticks after a policy decision before the action takes effect. Rocket League itself has input delay, so `tickSkip - 1` matches other RLGym frameworks. Lower values react faster in sim but transfer worse to the real game. |
 | `randomSeed` | -1 | -1 seeds from the current time. The seed strongly affects early training. |

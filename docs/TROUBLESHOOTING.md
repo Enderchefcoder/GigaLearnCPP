@@ -53,7 +53,10 @@ Deterministic mode is for inference/rendering only; PPO needs the stochastic log
 **`PPOLearner: config.batchSize must be a multiple of config.miniBatchSize`**
 Exactly what it says — pick a minibatch size that divides the batch size.
 
-**`Obs builder produced a NaN/inf value at obs index N`**
+**`WARNING: Non-finite values in the obs of arena N, resetting it`**
+Extreme collisions can very rarely diverge RocketSim's physics to NaN. The learner recovers automatically: the affected arena is reset and its in-progress episode data is discarded (`Env NaN Resets` metric). Seeing this occasionally is harmless; seeing it constantly means your setup is breaking the physics (e.g. a state setter spawning objects inside each other).
+
+**`Obs builder produced a NaN/inf value at obs index N, even for a freshly-reset state`**
 Your obs builder produced garbage — the index tells you which obs element. Common causes: normalizing a zero-length vector, dividing by a value that can be zero, uninitialized fields.
 
 **Out of VRAM during learning**
