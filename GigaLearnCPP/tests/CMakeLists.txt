@@ -5,7 +5,8 @@ cmake_minimum_required(VERSION 3.18)
 
 project("GigaLearnTests" LANGUAGES CXX)
 
-file(GLOB TEST_SRC "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
+# CONFIGURE_DEPENDS makes the build re-glob when test files are added/removed
+file(GLOB TEST_SRC CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
 
 # The tests compile the (private) source files they test directly,
 #	so they don't depend on which symbols the shared library exports
