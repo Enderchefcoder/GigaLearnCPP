@@ -4,6 +4,7 @@
 #include <GigaLearnCPP/PPO/ExperienceBuffer.h>
 
 #include <torch/cuda.h>
+#include <ATen/Parallel.h>
 #include <nlohmann/json.hpp>
 #include <pybind11/embed.h>
 
@@ -423,6 +424,10 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 		std::thread keyPressThread;
 		StartQuitKeyThread(saveQueued, keyPressThread);
 
+		// See config.collectionTorchThreads (same reasoning as the main training loop)
+		int defaultTorchThreads = at::get_num_threads();
+		bool limitCollectionTorchThreads = (config.collectionTorchThreads > 0);
+
 		while (true) {
 			Report report = {};
 
@@ -435,6 +440,9 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 			int stepsCollected;
 			{
 				RG_NO_GRAD;
+
+				if (limitCollectionTorchThreads)
+					at::set_num_threads(config.collectionTorchThreads);
 				for (stepsCollected = 0; stepsCollected < tlConfig.batchSize; stepsCollected += envSet->state.numPlayers) {
 					
 					auto terminals = envSet->state.terminals; // Backup
@@ -482,6 +490,10 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 					if (stepCallback)
 						stepCallback(this, envSet->state.gameStates, report);
 				}
+
+				// Learning gets torch's full thread count back
+				if (limitCollectionTorchThreads)
+					at::set_num_threads(defaultTorchThreads);
 			}
 
 			uint64_t prevTimesteps = totalTimesteps;
@@ -611,6 +623,12 @@ void GGL::Learner::Start() {
 
 		auto trajectories = std::vector<Trajectory>(numPlayers, Trajectory{});
 		int maxEpisodeLength = (int)(config.ppo.maxEpisodeDuration * (120.f / config.tickSkip));
+
+		// Torch's idle intra-op worker threads spin-wait, which starves the env-stepping threads
+		//	during collection, so torch threads are limited while collecting and restored for learning
+		// (See config.collectionTorchThreads)
+		int defaultTorchThreads = at::get_num_threads();
+		bool limitCollectionTorchThreads = (config.collectionTorchThreads > 0) && !render;
 
 		// Which players were controlled by the current policy (and thus recorded) last iteration
 		auto prevRecordedMask = std::vector<bool>(numPlayers, true);
@@ -764,6 +782,9 @@ void GGL::Learner::Start() {
 				Timer collectionTimer = {};
 				{ // Collect timesteps
 					RG_NO_GRAD;
+
+					if (limitCollectionTorchThreads)
+						at::set_num_threads(config.collectionTorchThreads);
 
 					float inferTime = 0;
 					float envStepTime = 0;
@@ -980,6 +1001,10 @@ void GGL::Learner::Start() {
 
 					report["Inference Time"] = inferTime;
 					report["Env Step Time"] = envStepTime;
+
+					// Consumption gets torch's full thread count back
+					if (limitCollectionTorchThreads)
+						at::set_num_threads(defaultTorchThreads);
 				}
 				float collectionTime = collectionTimer.Elapsed();
 

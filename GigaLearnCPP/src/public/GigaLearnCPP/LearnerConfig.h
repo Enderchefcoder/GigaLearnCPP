@@ -17,6 +17,13 @@ namespace GGL {
 		int tickSkip = 8;
 		int actionDelay = 7;
 
+		// Number of torch intra-op threads to use during collection (0 = leave at torch's default)
+		// Torch's idle worker threads spin-wait, which starves the environment threads during collection,
+		//	so limiting torch to 1 thread during collection is usually much faster on CPU
+		//	(the full thread count is restored for the learn phase, which needs it)
+		// On this library's test machine, 1 makes CPU collection ~2.4x faster than torch's default
+		int collectionTorchThreads = 1;
+
 		bool renderMode = false;
 		// If renderMode, this is the scaling of time for the game
 		// 1.0 = Run the game at real time

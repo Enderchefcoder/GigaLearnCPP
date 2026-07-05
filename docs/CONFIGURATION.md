@@ -14,6 +14,7 @@ All learner behavior is controlled through `LearnerConfig` (which contains `PPOL
 | `actionDelay` | 7 | Ticks after a policy decision before the action takes effect. Rocket League itself has input delay, so `tickSkip - 1` matches other RLGym frameworks. Lower values react faster in sim but transfer worse to the real game. |
 | `randomSeed` | -1 | -1 seeds from the current time. The seed strongly affects early training. |
 | `deviceType` | `AUTO` | `AUTO` uses a CUDA GPU if libtorch can access one, else CPU. Force with `CPU`/`GPU_CUDA`. |
+| `collectionTorchThreads` | 1 | Torch intra-op threads during collection (full count is restored for learning). Torch's idle workers spin-wait and starve the env threads, so 1 is usually much faster (+53% overall on the library's CPU test machine). 0 leaves torch's default. |
 
 ### Render mode
 
@@ -134,6 +135,20 @@ Plays rating matches between the current policy and saved versions on separate a
 | `ratingInc` | 5 | Rating increment scale per goal. |
 | `initialRating` | 0 | Rating of the first version. |
 | `deterministic` | false | Evaluate policies deterministically. Off by default since training optimizes the stochastic policy. |
+
+## Runtime schedules
+
+Learning rate and entropy can be adjusted while training runs (e.g. decayed by total timesteps) from your step callback:
+
+```cpp
+void StepCallback(Learner* learner, const std::vector<GameState>& states, Report& report) {
+	// Example: drop the learning rate after 500M steps
+	if (learner->totalTimesteps > 500'000'000 && learner->GetPolicyLR() > 1e-4f)
+		learner->SetLearningRates(1e-4f, 1e-4f);
+}
+```
+
+Available: `SetLearningRates(policyLR, criticLR)`, `SetEntropyScale(scale)`, `GetPolicyLR()`, `GetCriticLR()`, `GetEntropyScale()`. Changes take effect from the next learn phase.
 
 ## Transfer learning (`Learner::StartTransferLearn`)
 
