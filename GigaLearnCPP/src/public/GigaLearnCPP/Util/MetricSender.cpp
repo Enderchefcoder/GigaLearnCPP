@@ -2,30 +2,41 @@
 
 #include "Timer.h"
 
+#include <pybind11/pybind11.h>
+
 namespace py = pybind11;
 using namespace GGL;
+
+struct GGL::MetricSender::Impl {
+	py::module pyMod;
+};
 
 GGL::MetricSender::MetricSender(std::string _projectName, std::string _groupName, std::string _runName, std::string runID) :
 	projectName(_projectName), groupName(_groupName), runName(_runName) {
 
 	RG_LOG("Initializing MetricSender...");
 
+	impl = new Impl();
+
 	try {
-		pyMod = py::module::import("python_scripts.metric_receiver");
+		impl->pyMod = py::module::import("python_scripts.metric_receiver");
 	} catch (std::exception& e) {
-		RG_ERR_CLOSE("MetricSender: Failed to import metrics receiver, exception: " << e.what());
+		RG_ERR_CLOSE(
+			"MetricSender: Failed to import metrics receiver, exception: " << e.what() << "\n" <<
+			"Make sure the \"python_scripts\" folder is next to your executable (or in your working directory)."
+		);
 	}
 
 	try {
-		auto returedRunID = pyMod.attr("init")(PY_EXEC_PATH, projectName, groupName, runName, runID);
-		curRunID = returedRunID.cast<std::string>();
-		RG_LOG(" > " << (runID.empty() ? "Starting" : "Continuing") << " run with ID : \"" << curRunID << "\"...");
+		auto returnedRunID = impl->pyMod.attr("init")(PY_EXEC_PATH, projectName, groupName, runName, runID);
+		curRunID = returnedRunID.cast<std::string>();
+		RG_LOG(" > " << (runID.empty() ? "Starting" : "Continuing") << " run with ID: \"" << curRunID << "\"...");
 
 	} catch (std::exception& e) {
 		RG_ERR_CLOSE("MetricSender: Failed to initialize in Python, exception: " << e.what());
 	}
 
-	RG_LOG(" > MetricSender initalized.");
+	RG_LOG(" > MetricSender initialized.");
 }
 
 void GGL::MetricSender::Send(const Report& report) {
@@ -35,12 +46,12 @@ void GGL::MetricSender::Send(const Report& report) {
 		reportDict[pair.first.c_str()] = pair.second;
 
 	try {
-		pyMod.attr("add_metrics")(reportDict);
+		impl->pyMod.attr("add_metrics")(reportDict);
 	} catch (std::exception& e) {
 		RG_ERR_CLOSE("MetricSender: Failed to add metrics, exception: " << e.what());
 	}
 }
 
 GGL::MetricSender::~MetricSender() {
-	
+	delete impl;
 }
