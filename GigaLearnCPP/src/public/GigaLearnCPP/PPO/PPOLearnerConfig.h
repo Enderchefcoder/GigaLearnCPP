@@ -55,6 +55,10 @@ namespace GGL {
 		// This is a common PPO safeguard against destructively large policy updates
 		// Set to 0 to disable (default)
 		float targetKLDiv = 0;
+
+		// Maximum gradient norm per model per batch (standard PPO gradient clipping)
+		// Set to 0 to disable clipping
+		float gradClipNorm = 0.5f;
 		
 		// Temperature of the policy's softmax distribution
 		float policyTemperature = 1;

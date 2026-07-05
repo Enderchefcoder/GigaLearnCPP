@@ -333,13 +333,15 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 				}
 			}
 
-			if (trainPolicy)
-				nn::utils::clip_grad_norm_(models["policy"]->parameters(), 0.5f);
-			if (trainCritic)
-				nn::utils::clip_grad_norm_(models["critic"]->parameters(), 0.5f);
+			if (config.gradClipNorm > 0) {
+				if (trainPolicy)
+					nn::utils::clip_grad_norm_(models["policy"]->parameters(), config.gradClipNorm);
+				if (trainCritic)
+					nn::utils::clip_grad_norm_(models["critic"]->parameters(), config.gradClipNorm);
 
-			if (trainSharedHead)
-				nn::utils::clip_grad_norm_(models["shared_head"]->parameters(), 0.5f);
+				if (trainSharedHead)
+					nn::utils::clip_grad_norm_(models["shared_head"]->parameters(), config.gradClipNorm);
+			}
 
 			models.StepOptims();
 		}

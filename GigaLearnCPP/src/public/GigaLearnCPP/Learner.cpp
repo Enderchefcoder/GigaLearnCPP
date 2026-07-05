@@ -361,9 +361,9 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 	for (int i = 0; i < envSet->arenas.size(); i++)
 		oldObsBuilders.push_back(tlConfig.makeOldObsFn());
 
-	// Reset all obs builders initially
+	// Reset all obs builders initially, each with its own arena's state
 	for (int i = 0; i < envSet->arenas.size(); i++)
-		oldObsBuilders[i]->Reset(envSet->state.gameStates[0]);
+		oldObsBuilders[i]->Reset(envSet->state.gameStates[i]);
 
 	std::vector<ActionParser*> oldActionParsers = {};
 	for (int i = 0; i < envSet->arenas.size(); i++)

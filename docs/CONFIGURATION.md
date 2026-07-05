@@ -86,6 +86,7 @@ All learner behavior is controlled through `LearnerConfig` (which contains `PPOL
 | `clipRange` | 0.2 | PPO ratio clip range. |
 | `normalizeAdvantages` | false | Normalize advantages within each minibatch (common PPO trick; discards advantage magnitude information but can stabilize training). |
 | `targetKLDiv` | 0 | If > 0, remaining epochs are skipped once an epoch's mean KL divergence exceeds 1.5x this value (protects against destructively large updates; reported as `Epochs Ran`). |
+| `gradClipNorm` | 0.5 | Max gradient norm per model per batch. 0 disables clipping. |
 | `gaeGamma` | 0.99 | Reward discount rate. Lower values favor short-term reward; starting lower (0.99) and raising later is common. |
 | `gaeLambda` | 0.95 | GAE smoothing parameter. |
 | `rewardClipRange` | 10 | Clip range for standardized rewards. 0 disables. |
