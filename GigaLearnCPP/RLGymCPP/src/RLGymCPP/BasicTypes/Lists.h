@@ -58,6 +58,12 @@ namespace RLGC {
 			return std::vector<T>(startItr, startItr + size[1]);
 		}
 
+		// Appends a row to the end of an existing vector, without allocating a temporary
+		void AppendRowTo(size_t idx0, std::vector<T>& out) const {
+			auto startItr = data.begin() + (idx0 * size[1]);
+			out.insert(out.end(), startItr, startItr + size[1]);
+		}
+
 		void Add(const std::vector<T>& newRow) {
 			RG_ASSERT(size[1] == newRow.size());
 			size[0]++;

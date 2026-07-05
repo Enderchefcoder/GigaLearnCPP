@@ -1,0 +1,72 @@
+# Lessons
+
+## User Specified Lessons
+
+- You have a python venv in ./venv (create if needed). Check `which uv` first; if available use `uv pip install`, else `pip`.
+- For multiline commit messages, write the message to a file and use `git commit -F <filename>`, then delete the file. Include "[Cursor] " in commit messages and PR titles.
+
+## Cursor learned
+
+- This repo (GigaLearnCPP) was developed on MSVC; GCC builds need care (Timer clock mismatch, typeid mangling).
+- libtorch 2.x requires CMake >= 3.18 and C++17+; repo uses C++20.
+- `configure_file(... COPY)` is invalid CMake; must be `COPYONLY`.
+- `torch::tensor(std::vector<T>)` is slow for big vectors; prefer `torch::from_blob(...).clone()`.
+- index_copy_ in libtorch requires kLong (int64) index tensors.
+- GCC `typeid().name()` returns mangled names; use `abi::__cxa_demangle` for readable reward names.
+- CPU-only libtorch download: https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-<ver>%2Bcpu.zip
+
+# Scratchpad
+
+## Task: Improve GigaLearnCPP (bugs, speed, docs, setup, roadmap) - branch cursor/improve-gigalearn-e1ff
+
+### Confirmed bugs (from code audit)
+[ ] GAE.cpp: truncated val preds consumed in reverse order (backward loop, forward-stored)
+[ ] GAE.cpp: OOB read `_valPreds[step+1]` on last step
+[ ] PPOLearner::Learn: overbatch tail silently dropped (GPU + CPU paths)
+[ ] BatchedWelfordStat::ReadFromJSON reads "mean"/"var" but ToJSON writes "means"/"vars" -> crash on load w/ standardizeObs
+[ ] Learner.cpp reward sampling: uses lastRewards[i] instead of [arenaIdx]; OOB on empty lastRewards
+[ ] EnvSet ctor: arenas pushed in thread completion order but userInfo->arenaIdx = creation idx -> event misattribution
+[ ] EnvSet ctor: heatseeker pushes NULL into eventCallbackInfos twice
+[ ] EnvSet::ResetArena: userInfo set on local copy after assignment -> gameStates userInfo always NULL
+[ ] Learner obs-standardize: RS_MAX should be RS_MIN (maxObsSamples is a cap)
+[ ] Deterministic mode in training: promised exception missing -> OOB crash instead
+[ ] ComputeEntropy maskEntropy: div by log(1)=0 when 1 valid action
+[ ] Timer.h: steady_clock time_point assigned from high_resolution_clock::now() -> GCC compile error
+[ ] Report::Display list: missing comma joins "-PPO Learn Time" + "" (also wrong key names in display list)
+[ ] DefaultAction: off-by-one `i > numGroundActions` (first air action permanently masked)
+[ ] DefaultAction: boost-mask removal before jump-mask add re-enables boost actions at 0 boost
+[ ] Reward::GetName: mangled names on GCC (demangle)
+[ ] trainAgainstOldVersions: stale partial trajectories corrupt when player recording set changes
+[ ] KeyPressDetector: EOF -> busy spin in headless envs
+[ ] Truncation next-states not standardized when standardizeObs enabled
+[ ] index tensors must be kLong for index_copy_ (train-against-old path)
+[ ] MagSGD: div-by-zero when gradMag == 0
+[ ] PolicyVersionManager: skill env leaks replaced setters/conds/rewards
+[ ] CMake: configure_file COPY -> COPYONLY, libsrc glob typo, deprecated FindPythonLibs
+
+### Perf improvements
+[ ] Learn(): accumulate metrics as tensors, single GPU sync per iteration (was ~8 .item() syncs per minibatch)
+[ ] NaN obs scan -> vectorizable double-sum check w/ detailed scan only on failure
+[ ] DIMLIST2_TO_TENSOR / VEC_TO_TENSOR via from_blob+clone (memcpy) instead of elementwise torch::tensor
+[ ] Avoid GetRow() temporary allocs in hot loop (AppendRowTo)
+[ ] Trajectory reserve() to reduce reallocs
+[ ] ExperienceBuffer: single shuffled kLong index tensor, narrow() per batch
+
+### Features / roadmap
+[ ] Finish "training against older versions" (fix corruption; README roadmap item)
+[ ] Advantage normalization option (standard PPO trick)
+[ ] Metric fallback: no wandb -> local JSONL logger instead of crash
+[ ] sys.path fix so python_scripts import works regardless of CWD
+
+### Docs
+[ ] Rewrite README.md professionally
+[ ] docs/: INSTALLATION, GETTING_STARTED, CONFIGURATION, ARCHITECTURE, TROUBLESHOOTING, MIGRATION
+[ ] Example: portable collision_meshes path
+
+### Verification
+[ ] Linux build with CPU libtorch (GigaLearnCPP + RLGymCPP + RocketSim compile)
+[ ] Unit tests for GAE, WelfordStat, ExperienceBuffer, Report, DefaultAction masks, ZeroSum, DimList2, entropy
+[ ] GitHub Actions CI workflow (build + tests)
+
+### Status
+Audit complete. Starting implementation with core learning bugs (GAE, PPO learn loop).

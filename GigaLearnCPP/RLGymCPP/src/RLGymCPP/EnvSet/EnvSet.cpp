@@ -45,48 +45,62 @@ void _BumpCallback(Arena* arena, Car* bumper, Car* victim, bool isDemo, void* us
 
 RLGC::EnvSet::EnvSet(const EnvSetConfig& config) : config(config) {
 
+	RG_ASSERT(config.numArenas > 0);
 	RG_ASSERT(config.tickSkip > 0);
 	RG_ASSERT(config.actionDelay >= 0 && config.actionDelay <= config.tickSkip);
 
-	std::mutex appendMutex = {};
+	// NOTE: Arenas are created in parallel and can finish out of order,
+	//	so everything is written by index (not appended) to keep env data aligned with its index
+	arenas.resize(config.numArenas);
+	eventCallbackInfos.resize(config.numArenas);
+	eventTrackers.resize(config.numArenas);
+	userInfos.resize(config.numArenas);
+	rewards.resize(config.numArenas);
+	terminalConditions.resize(config.numArenas);
+	obsBuilders.resize(config.numArenas);
+	actionParsers.resize(config.numArenas);
+	stateSetters.resize(config.numArenas);
+
 	auto fnCreateArenas = [&](int idx) {
 		auto createResult = config.envCreateFn(idx);
 		auto arena = createResult.arena;
 
-		appendMutex.lock();
-		{
-			arenas.push_back(arena);
+		arenas[idx] = arena;
 
-			auto userInfo = new CallbackUserInfo();
-			userInfo->arena = arena;
-			userInfo->arenaIdx = idx;
-			userInfo->envSet = this;
-			eventCallbackInfos.push_back(userInfo);
-			arena->SetCarBumpCallback(_BumpCallback, userInfo);
+		auto userInfo = new CallbackUserInfo();
+		userInfo->arena = arena;
+		userInfo->arenaIdx = idx;
+		userInfo->envSet = this;
+		eventCallbackInfos[idx] = userInfo;
+		arena->SetCarBumpCallback(_BumpCallback, userInfo);
 
-			if (arena->gameMode != GameMode::HEATSEEKER) {
-				GameEventTracker* tracker = new GameEventTracker({});
-				eventTrackers.push_back(tracker);
+		if (arena->gameMode != GameMode::HEATSEEKER) {
+			GameEventTracker* tracker = new GameEventTracker({});
+			eventTrackers[idx] = tracker;
 
-				tracker->SetShotCallback(_ShotEventCallback, userInfo);
-				tracker->SetGoalCallback(_GoalEventCallback, userInfo);
-				tracker->SetSaveCallback(_SaveEventCallback, userInfo);
-			} else {
-				eventTrackers.push_back(NULL);
-				eventCallbackInfos.push_back(NULL);
-			}
-
-			userInfos.push_back(createResult.userInfo);
-
-			rewards.push_back(createResult.rewards);
-			terminalConditions.push_back(createResult.terminalConditions);
-			obsBuilders.push_back(createResult.obsBuilder);
-			actionParsers.push_back(createResult.actionParser);
-			stateSetters.push_back(createResult.stateSetter);
+			tracker->SetShotCallback(_ShotEventCallback, userInfo);
+			tracker->SetGoalCallback(_GoalEventCallback, userInfo);
+			tracker->SetSaveCallback(_SaveEventCallback, userInfo);
+		} else {
+			eventTrackers[idx] = NULL;
 		}
-		appendMutex.unlock();
+
+		userInfos[idx] = createResult.userInfo;
+
+		rewards[idx] = createResult.rewards;
+		terminalConditions[idx] = createResult.terminalConditions;
+		obsBuilders[idx] = createResult.obsBuilder;
+		actionParsers[idx] = createResult.actionParser;
+		stateSetters[idx] = createResult.stateSetter;
 	};
 	g_ThreadPool.StartBatchedJobs(fnCreateArenas, config.numArenas, false);
+
+	for (int i = 0; i < config.numArenas; i++) {
+		if (!arenas[i])
+			RG_ERR_CLOSE("EnvSet: Env creation function returned a NULL arena for env " << i);
+		if (!obsBuilders[i] || !actionParsers[i] || !stateSetters[i])
+			RG_ERR_CLOSE("EnvSet: Env creation function did not set all required fields for env " << i);
+	}
 
 	state.Resize(arenas);
 	
@@ -256,9 +270,9 @@ void RLGC::EnvSet::StepSecondHalf(const IList& actionIndices, bool async) {
 
 void RLGC::EnvSet::ResetArena(int index) {
 	stateSetters[index]->ResetArena(arenas[index]);
-	GameState newState = GameState(arenas[index]);
-	state.gameStates[index] = newState;
 
+	GameState& newState = state.gameStates[index];
+	newState = GameState(arenas[index]);
 	newState.userInfo = userInfos[index];
 
 	// Update event tracker

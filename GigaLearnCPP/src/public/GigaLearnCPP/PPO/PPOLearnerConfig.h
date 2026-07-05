@@ -44,6 +44,11 @@ namespace GGL {
 		bool maskEntropy = false; 
 
 		float clipRange = 0.2f;
+
+		// Normalize advantages within each minibatch (a common PPO trick)
+		// This can stabilize training when advantage magnitudes vary a lot between iterations,
+		//	but it also discards some information about how good an action really was
+		bool normalizeAdvantages = false;
 		
 		// Temperature of the policy's softmax distribution
 		float policyTemperature = 1;

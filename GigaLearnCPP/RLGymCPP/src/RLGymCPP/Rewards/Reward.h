@@ -2,8 +2,28 @@
 #include "../Gamestates/GameState.h"
 #include "../BasicTypes/Action.h"
 
+#ifdef __GNUG__
+#include <cxxabi.h>
+#endif
+
 // https://github.com/AechPro/rocket-league-gym-sim/blob/main/rlgym_sim/utils/reward_functions/reward_function.py
 namespace RLGC {
+
+	// Returns the demangled name of a type (e.g. "RLGC::AirReward")
+	// MSVC's typeid().name() is already readable, but GCC/Clang return mangled names
+	inline std::string GetTypeName(const std::type_info& type) {
+#ifdef __GNUG__
+		int status = 0;
+		char* demangled = abi::__cxa_demangle(type.name(), NULL, NULL, &status);
+		if (demangled) {
+			std::string result = demangled;
+			free(demangled);
+			return result;
+		}
+#endif
+		return type.name();
+	}
+
 	class Reward {
 	private:
 		std::string _cachedName = {};
@@ -29,31 +49,31 @@ namespace RLGC {
 			return rewards;
 		}
 
-		virtual std::string GetName() {
+	virtual std::string GetName() {
 
-			if (!_cachedName.empty())
-				return _cachedName;
+		if (!_cachedName.empty())
+			return _cachedName;
 
-			std::string rewardName = typeid(*this).name();
+		std::string rewardName = GetTypeName(typeid(*this));
 
-			// Trim the string to after cetain keys
-			{
-				constexpr const char* TRIM_KEYS[] = {
-					"::", // Namespace separator
-					" " // Any spaces
-				};
-				for (const char* key : TRIM_KEYS) {
-					size_t idx = rewardName.rfind(key);
-					if (idx == std::string::npos)
-						continue;
+		// Trim the string to after certain keys
+		{
+			constexpr const char* TRIM_KEYS[] = {
+				"::", // Namespace separator
+				" " // Any spaces
+			};
+			for (const char* key : TRIM_KEYS) {
+				size_t idx = rewardName.rfind(key);
+				if (idx == std::string::npos)
+					continue;
 
-					rewardName.erase(rewardName.begin(), rewardName.begin() + idx + strlen(key));
-				}
+				rewardName.erase(rewardName.begin(), rewardName.begin() + idx + strlen(key));
 			}
-
-			_cachedName = rewardName;
-			return rewardName;
 		}
+
+		_cachedName = rewardName;
+		return rewardName;
+	}
 
 		virtual ~Reward() {};
 	};

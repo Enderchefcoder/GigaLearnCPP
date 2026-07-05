@@ -112,9 +112,17 @@ namespace GGL {
 		}
 
 		void ReadFromJSON(const nlohmann::json& json) {
-			runningMeans = Utils::MakeVecFromJSON<double>(json["mean"]);
-			runningVariances = Utils::MakeVecFromJSON<double>(json["var"]);
+			// NOTE: Old versions wrote these keys as "means"/"vars" but read them as "mean"/"var",
+			//	which broke loading, so we accept both
+			runningMeans = Utils::MakeVecFromJSON<double>(json.contains("means") ? json["means"] : json["mean"]);
+			runningVariances = Utils::MakeVecFromJSON<double>(json.contains("vars") ? json["vars"] : json["var"]);
 			count = json["count"];
+
+			if (runningMeans.size() != width || runningVariances.size() != width)
+				RG_ERR_CLOSE(
+					"BatchedWelfordStat::ReadFromJSON(): Saved obs stat width (" << runningMeans.size() << ") " <<
+					"does not match current obs size (" << width << ")"
+				);
 		}
 	};
 }

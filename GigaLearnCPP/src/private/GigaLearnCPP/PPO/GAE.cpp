@@ -10,10 +10,7 @@ void GGL::GAE::Compute(
 
 	float prevLambda = 0;
 	int numReturns = rews.size(0);
-	outAdvantages = torch::zeros(numReturns);
-	outReturns = torch::zeros(numReturns);
 	float prevRet = 0;
-	int truncCount = 0;
 
 	float totalRew = 0, totalClippedRew = 0;
 
@@ -41,6 +38,19 @@ void GGL::GAE::Compute(
 
 	auto _outReturns = std::vector<float>(numReturns, 0);
 	auto _outAdvantages = std::vector<float>(numReturns, 0);
+
+	if (numReturns > 0) {
+		uint8_t lastTerminal = _terminals[numReturns - 1];
+		if (lastTerminal == RLGC::TerminalType::NOT_TERMINAL)
+			RG_ERR_CLOSE(
+				"GAE::Compute(): The last timestep must end an episode (terminal or truncated), " <<
+				"but it is not terminal. Experience must only contain complete episodes."
+			);
+	}
+
+	// Truncated value predictions were appended in the order the episodes finished,
+	//	but we iterate backwards, so we consume them from the back
+	int truncsConsumed = 0;
 
 	for (int step = numReturns - 1; step >= 0; step--) {
 		uint8_t terminal = _terminals[step];
@@ -71,11 +81,15 @@ void GGL::GAE::Compute(
 			if (!hasTruncValPreds)
 				RG_ERR_CLOSE("GAE encountered a truncated terminal, but has no truncated val pred");
 
-			if (truncCount >= numTruncs)
-				RG_ERR_CLOSE("GAE encountered too many truncated terminals, not enough val preds (max: " << numTruncs << ")")
+			if (truncsConsumed >= numTruncs)
+				RG_ERR_CLOSE("GAE encountered too many truncated terminals, not enough val preds (max: " << numTruncs << ")");
 
-			nextValPred = _truncValPreds[truncCount];
-			truncCount++;
+			truncsConsumed++;
+			nextValPred = _truncValPreds[numTruncs - truncsConsumed];
+		} else if (terminal == RLGC::TerminalType::NORMAL) {
+			// Episode ended for real, there is no next value
+			// (It would be multiplied by (1 - done) = 0 anyway)
+			nextValPred = 0;
 		} else {
 			nextValPred = _valPreds[step + 1];
 		}
@@ -92,11 +106,11 @@ void GGL::GAE::Compute(
 	}
 	
 	if (hasTruncValPreds)
-		if (truncCount != truncValPreds.size(0))
-			RG_ERR_CLOSE("GAE didn't receive expected truncation count (only " << truncCount << "/" << truncValPreds.size(0) << ")");
+		if (truncsConsumed != numTruncs)
+			RG_ERR_CLOSE("GAE didn't receive expected truncation count (only " << truncsConsumed << "/" << numTruncs << ")");
 
-	outReturns = torch::tensor(_outReturns);
-	outAdvantages = torch::tensor(_outAdvantages);
-	outTargetValues = valPreds.slice(0, 0, numReturns) + outAdvantages;
+	outReturns = VEC_TO_TENSOR(_outReturns);
+	outAdvantages = VEC_TO_TENSOR(_outAdvantages);
+	outTargetValues = valPreds + outAdvantages;
 	outRewClipPortion = (totalRew - totalClippedRew) / RS_MAX(totalRew, 1e-7f);
 }

@@ -23,16 +23,32 @@ at::autocast::set_enabled(false); \
 #define RG_HALFPERC_TYPE torch::ScalarType::BFloat16
 
 namespace GGL {
+	// Fast vector-to-tensor conversion
+	// Uses from_blob() + clone(), which is a memcpy,
+	//	unlike torch::tensor() which iterates elementwise
+	template <typename T>
+	inline torch::Tensor VEC_TO_TENSOR(const std::vector<T>& vec) {
+		auto options = torch::TensorOptions().dtype(torch::CppTypeToScalarType<T>::value);
+
+		if (vec.empty())
+			return torch::empty({ 0 }, options);
+
+		return torch::from_blob(
+			const_cast<T*>(vec.data()), { (int64_t)vec.size() },
+			options
+		).clone();
+	}
+
 	template <typename T>
 	inline torch::Tensor DIMLIST2_TO_TENSOR(const RLGC::DimList2<T>& list) {
-		return torch::tensor(list.data).reshape({ (int64_t)list.size[0], (int64_t)list.size[1] });
+		return VEC_TO_TENSOR(list.data).reshape({ (int64_t)list.size[0], (int64_t)list.size[1] });
 	}
 
 	template <typename T>
 	inline std::vector<T> TENSOR_TO_VEC(torch::Tensor tensor) {
 		assert(tensor.dim() == 1);
-		tensor = tensor.contiguous().cpu().detach().to(torch::CppTypeToScalarType<T>());
-		T* data = tensor.data_ptr<T>();
+		tensor = tensor.detach().cpu().contiguous().to(torch::CppTypeToScalarType<T>());
+		const T* data = tensor.const_data_ptr<T>();
 		return std::vector<T>(data, data + tensor.size(0));
 	}
 }

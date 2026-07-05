@@ -89,7 +89,7 @@ namespace GGL {
 		bool _seqHalfOutdated = true;
 		ModelConfig config;
 
-		torch::optim::Optimizer* optim;
+		torch::optim::Optimizer* optim = nullptr;
 
 		Model() : config(PartialModelConfig{}), device({}), modelName(NULL) {} // Uninitialized init
 
@@ -153,7 +153,9 @@ namespace GGL {
 			return total;
 		}
 
-		virtual ~Model() = default;
+		virtual ~Model() {
+			delete optim;
+		}
 	};
 
 	class ModelSet {
@@ -162,11 +164,7 @@ namespace GGL {
 
 		Model* operator[](const std::string& name) { 
 			auto itr = map.find(name);
-			if (itr == map.end()) {
-				return NULL;
-			} else {
-				return map[name];
-			}
+			return (itr == map.end()) ? NULL : itr->second;
 		};
 
 		void Add(Model* model) {
@@ -190,8 +188,16 @@ namespace GGL {
 				model->Load(folder, allowNotExist, loadOptims);
 		}
 
-		class ModelIterator : public std::iterator<std::forward_iterator_tag, typename Model*> {
+		// Forward iterator over the models in the set
+		// (std::iterator is deprecated in C++17, so the iterator traits are defined manually)
+		class ModelIterator {
 		public:
+			using iterator_category = std::forward_iterator_tag;
+			using value_type = Model*;
+			using difference_type = std::ptrdiff_t;
+			using pointer = Model**;
+			using reference = Model*&;
+
 			using MapItr = std::map<std::string, Model*>::iterator;
 			MapItr _mapItr;
 
@@ -202,7 +208,7 @@ namespace GGL {
 			bool operator==(const ModelIterator& other) const { return _mapItr == other._mapItr; }
 			bool operator!=(const ModelIterator& other) const { return _mapItr != other._mapItr; }
 
-			typename Model*& operator*() const { return _mapItr->second; }
+			Model*& operator*() const { return _mapItr->second; }
 		};
 
 		ModelIterator begin() {

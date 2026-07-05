@@ -81,3 +81,10 @@ std::vector<RLGC::Action> GGL::InferUnit::BatchInferActions(const std::vector<RL
 
 	return results;
 }
+
+GGL::InferUnit::~InferUnit() {
+	if (models) {
+		models->Free();
+		delete models;
+	}
+}

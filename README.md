@@ -1,77 +1,103 @@
-# GigaLearnCPP Leaked Version
+# GigaLearnCPP
 
--------------
-# This is the version that cheaters decided to leak :(
+**GigaLearn** is a high-performance C++ machine learning framework for training Rocket League bots with [PPO](https://en.wikipedia.org/wiki/Proximal_policy_optimization), built on [RocketSim](https://github.com/ZealanL/RocketSim).
 
-### This library was intended to be private, but apparently we can't have nice things. 
+It is the successor to [RLGymPPO-CPP](https://github.com/ZealanL/RLGymPPO-CPP), with a redesigned environment API, a monolithic single-process inference model, and far higher throughput.
 
-A trusted former GigaLearn user (with source code access) decided to join the cheaters and then share around this library, now it's public.
-Thus, I am formally publishing this specific version for anyone to use.
+> **Note on this repository's origin:** This library was originally private. After a former user with source access leaked it, this specific version was formally published for anyone to use.
 
--------------
+## Highlights
 
-GigaLearn is an even-faster C++ machine learning framework for Rocket League bots.
-This is a progression far beyond my previous C++ learning framework, RLGymPPO-CPP (which I have stopped developing).
+- **Fast**: Collection speeds are around 2x faster than RLGymPPO-CPP and around 10x faster than the Python RLGym-PPO (measured on the author's machine, hardware-dependent)
+- **Single-process**: One process, one model, batched inference across all game instances — no inter-process copying of observations
+- **Complete action masking**: Invalid actions are masked out of the policy distribution during both collection and learning
+- **Self-play infrastructure built in**: Policy version saving, ELO-based skill tracking, and training against older versions
 
-## Speed
-Collection speeds are around 2x faster in GigaLearn than RLGymPPO-CPP, and around 10x faster than RLGym-PPO (on my machine).
-Consumption speeds are a bit faster than RLGymPPO-CPP, although this varies heavily.
-This speed is not at all final and I plan to make the library much faster once I finish other important features.
+## Feature Overview
 
-## Features
-**Basic Features (Shared With Most Frameworks)**:
-- Fast PPO implementation
-- Configurable model layer sizes
-- Checkpoint saving/loading
-- Working example
-- Return standardization and obs standardization support
-- Built-in visualization support
-- Easy custom metrics suppport
+**Core learning:**
+- Fast PPO implementation with configurable epochs, batch/minibatch sizes, entropy, and clip range
+- Shared layers ("shared head") between policy and critic (enabled by default)
+- Configurable model layer sizes, activation functions, optimizers, and layer normalization
+- Return standardization and observation standardization
+- Optional advantage normalization
+- Half-precision (bfloat16) inference for faster collection on GPU
+- Checkpoint saving/loading with automatic cleanup of old checkpoints
+- Transfer learning from an old policy with a different obs builder or action parser ("brain surgery")
+- Optional guiding policy to nudge training toward an existing policy's behavior
 
-**Unique Learning Features**:
-- Extremely fast monolithic single-process inference model
-- Complete and proper action masking
-- Built-in shared layers support (enabled by default)
-- Built-in configurable ELO-based skill tracking system 
-- Configurable model activation functions
-- Configurable model optimizers
-- Configurable model layer norm (recommended)
-- Policy version saving system (required if using the skill tracker)
-- Built-in reward logging
-
-**Unique Environment/State Features**:
+**Environment & state:**
+- Multithreaded environment stepping over any number of RocketSim arenas
 - Access to previous states (e.g. `player.prev->pos`)
-- Simpler access to previous actions, final bools
-- Inherented access to all `CarState` and `BallState` fields (e.g. `player.isFlipping`)
-- No more duplicate state fields
-- Simpler access to current state events (e.g. `if (player.eventState.shot) ...`)
-- User-led setup of arenas and cars during environment creation
-- RocketSim-based state setting (you are given the arena to state-set)
-- Configurable action delay
+- Inherited access to all `CarState` and `BallState` fields (e.g. `player.isFlipping`)
+- Current-step event access (e.g. `if (player.eventState.shot) ...`) for goals, assists, shots, saves, bumps, and demos
+- User-led arena setup during environment creation, including RocketSim-based state setting
+- Configurable tick skip and action delay
 
-***Coming Soon**:
-- Training against older versions
+**Self-play & evaluation:**
+- Policy version saving system
+- Built-in configurable ELO-based skill tracking against saved versions
+- Training against older versions of the policy
 
-## Installation
-*There's no installation guide for now as I plan to rework several aspects of the library to make it easier to install.*
+**Tooling:**
+- Metric reporting to [Weights & Biases](https://wandb.ai/) (falls back to local JSONL logging if wandb is unavailable)
+- Built-in visualization support via [RocketSimVis](https://github.com/ZealanL/RocketSimVis)
+- Easy custom metrics from a step callback
+- Built-in per-reward logging
+- [RLBot](https://rlbot.org/) client for running your trained bot in-game (see `src/RLBotClient.h` and `rlbot/`)
+- Checkpoint conversion to/from Python rlgym-ppo (`tools/checkpoint_converter.py`)
 
-## Bringing In Rewards/Obs Builders/Etc. from RLGymPPO_CPP
-State changes:
-- `PlayerData` -> `Player`
-- `player.phys` -> `player.`
-- `player.carState` -> `player`
-- `state.ballState` -> `state.ball`
+## Quick Start
 
-Reward changes:
-- `GetReward(const PlayerData& player, const GameState& state, const Action& prevAction)` -> `GetReward(const Player& player, const GameState& state, bool isFinal) override`
-- `prevAction (argument)` -> `player.prevAction`
-- `GetFinalReward()` -> `isFinal (argument)`
+```bash
+git clone <this repository>
+cd GigaLearnCPP-Leak
 
-Metrics:
-- `metrics.AccumAvg(), metrics.GetAvg()` -> `report.AddAvg()`
+# Place libtorch at GigaLearnCPP/libtorch (see docs/INSTALLATION.md)
 
-Learner config:
-- `cfg.numThreads, cfg.numGamesPerThread` -> `cfg.numGames`
-- `cfg.ppo.policyLayerSizes` -> `cfg.ppo.policy.layerSizes`
-- `cfg.ppo.criticLayerSizes` -> `cfg.ppo.critic.layerSizes`
-- `cfg.expBufferSize` -> `(experience buffer removed)`
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+```
+
+Then look at [`src/ExampleMain.cpp`](src/ExampleMain.cpp) — it is a complete, commented training setup with rewards, terminal conditions, and a learner configuration. Copy it and start experimenting.
+
+For the full walkthrough (prerequisites, collision meshes, CUDA, wandb), read:
+
+| Document | Contents |
+| --- | --- |
+| [docs/INSTALLATION.md](docs/INSTALLATION.md) | Prerequisites, libtorch setup, building on Windows & Linux |
+| [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) | Your first training run, explained line by line |
+| [docs/CONFIGURATION.md](docs/CONFIGURATION.md) | Every config option, with guidance |
+| [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How collection, learning, and self-play work internally |
+| [docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) | Fixes for common setup and runtime issues |
+| [docs/MIGRATING.md](docs/MIGRATING.md) | Porting rewards/obs builders from RLGymPPO-CPP |
+
+## Project Structure
+
+```
+├── src/                  # Your bot: example training main + RLBot client
+├── GigaLearnCPP/         # The learning framework (PPO, models, checkpoints, metrics)
+│   ├── RLGymCPP/         # The environment framework (arenas, obs, rewards, state setters)
+│   │   └── RocketSim/    # Rocket League physics simulation
+│   ├── python_scripts/   # Embedded Python receivers for metrics & rendering
+│   └── tests/            # Unit tests (enable with -DGGL_BUILD_TESTS=ON)
+├── RLBotCPP/             # RLBot framework bindings for playing in-game
+├── rlbot/                # RLBot bot folder (configs + Python agent)
+└── tools/                # Checkpoint converter for rlgym-ppo interop
+```
+
+## Requirements
+
+- CMake 3.18+
+- A C++20 compiler (MSVC 2019+, GCC 11+, or Clang 14+)
+- [libtorch](https://pytorch.org/get-started/locally/) (CUDA build strongly recommended for training)
+- Python 3.8+ (embedded for metrics/rendering; `wandb` optional)
+- Rocket League arena collision meshes, dumped with [RLArenaCollisionDumper](https://github.com/ZealanL/RLArenaCollisionDumper)
+
+## Credits
+
+- [ZealanL](https://github.com/ZealanL) — GigaLearn, RocketSim, RLGymPPO-CPP
+- [RLGym](https://rlgym.org/) & [rlgym-ppo](https://github.com/AechPro/rlgym-ppo) — the API and algorithms this framework is based on
+- [kipje13/RLBotCPP](https://github.com/kipje13/RLBotCPP) — RLBot C++ bindings
+- [DeveloperPaul123/thread-pool](https://github.com/DeveloperPaul123/thread-pool) — thread pool library
+- [nlohmann/json](https://github.com/nlohmann/json), [pybind11](https://github.com/pybind/pybind11)

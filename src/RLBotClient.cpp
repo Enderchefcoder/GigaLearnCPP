@@ -21,7 +21,8 @@ RLBotBot::RLBotBot(int _index, int _team, std::string _name, const RLBotParams& 
 }
 
 RLBotBot::~RLBotBot() {
-	delete g_RLBotParams.inferUnit;
+	// NOTE: The InferUnit is shared between all bots (it lives in g_RLBotParams),
+	//	so it must not be deleted here (other bots may still be using it)
 }
 
 Vec ToVec(const rlbot::flat::Vector3* rlbotVec) {

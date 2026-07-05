@@ -26,6 +26,10 @@ namespace GGL {
 
 		std::set<int64_t> FindNumberedDirs(std::filesystem::path basePath);
 
+		// Returns the directory containing the current executable
+		// Falls back to the current working directory if it cannot be determined
+		std::filesystem::path GetExecutableDir();
+
 		template <typename T>
 		std::string NumToStr(T val) {
 			// https://stackoverflow.com/a/7277333

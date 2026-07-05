@@ -20,6 +20,9 @@ namespace GGL {
 		RLGC::Action InferAction(const RLGC::Player& player, const RLGC::GameState& state, bool deterministic, float temperature = 1);
 		std::vector<RLGC::Action> BatchInferActions(const std::vector<RLGC::Player>& players, const std::vector<RLGC::GameState>& states, bool deterministic, float temperature = 1);
 
-		// TODO: Add deconstructor (make sure to free models too)
+		RG_NO_COPY(InferUnit);
+
+		// NOTE: Does not free the obs builder or action parser (they are owned by the caller)
+		~InferUnit();
 	};
 }

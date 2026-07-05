@@ -15,35 +15,42 @@ namespace GGL {
 		}
 
 		torch::Tensor step(LossClosure closure = nullptr) override {
-			RG_NO_GRAD;
-
 			torch::Tensor loss = {};
 			if (closure != nullptr) {
 				at::AutoGradMode enable_grad(true);
 				loss = closure();
 			}
 
-			// Calculate total update magnitude
-			float gradMag = 0;
-			for (auto& group : this->param_groups())
-				for (auto& param : group.params())
-					if (param.grad().defined())
-						gradMag += param.grad().detach().square().sum().cpu().item<float>();
-			gradMag = sqrtf(gradMag);
+			{
+				RG_NO_GRAD;
 
-			// Normalize the gradients by dividing them by the update magnitude
-			for (auto& group : this->param_groups()) {
-				for (auto& param : group.params()) {
-					if (!param.grad().defined())
-						continue;
+				// Calculate total update magnitude
+				float gradMag = 0;
+				for (auto& group : this->param_groups())
+					for (auto& param : group.params())
+						if (param.grad().defined())
+							gradMag += param.grad().detach().square().sum().cpu().item<float>();
+				gradMag = sqrtf(gradMag);
 
-					auto& gradSlice = param.mutable_grad();
-					gradSlice /= gradMag;
+				// Normalize the gradients by dividing them by the update magnitude
+				// NOTE: If all gradients are zero, there is nothing to normalize
+				//	(and dividing would produce NaNs)
+				if (gradMag > 0) {
+					for (auto& group : this->param_groups()) {
+						for (auto& param : group.params()) {
+							if (!param.grad().defined())
+								continue;
+
+							auto& gradSlice = param.mutable_grad();
+							gradSlice /= gradMag;
+						}
+					}
 				}
 			}
 
 			// Let SGD do the step with our new gradients
-			return SGD::step(closure);
+			// NOTE: The closure was already run (if given), don't run it again
+			return SGD::step();
 		}
 	};
 }

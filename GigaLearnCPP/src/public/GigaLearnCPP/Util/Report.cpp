@@ -1,5 +1,3 @@
-#pragma once
-
 #include "Report.h"
 
 void GGL::Report::Display(std::vector<std::string> keyRows) const {

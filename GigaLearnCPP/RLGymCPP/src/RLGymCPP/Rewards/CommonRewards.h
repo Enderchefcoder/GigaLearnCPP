@@ -6,6 +6,7 @@ namespace RLGC {
 
 	template<bool PlayerEventState::* VAR, bool NEGATIVE>
 	class PlayerDataEventReward : public Reward {
+	public:
 		virtual float GetReward(const Player& player, const GameState& state, bool isFinal) {
 			bool val =  player.eventState.*VAR;
 
@@ -14,6 +15,21 @@ namespace RLGC {
 			} else {
 				return (float)val;
 			}
+		}
+
+		// typeid() produces unreadable names for template instantiations
+		//	(especially when demangled on GCC/Clang), so name these explicitly
+		virtual std::string GetName() override {
+			if constexpr (VAR == &PlayerEventState::goal) return "PlayerGoalReward";
+			else if constexpr (VAR == &PlayerEventState::assist) return "AssistReward";
+			else if constexpr (VAR == &PlayerEventState::shot) return "ShotReward";
+			else if constexpr (VAR == &PlayerEventState::shotPass) return "ShotPassReward";
+			else if constexpr (VAR == &PlayerEventState::save) return "SaveReward";
+			else if constexpr (VAR == &PlayerEventState::bump) return NEGATIVE ? "BumpedPenalty" : "BumpReward";
+			else if constexpr (VAR == &PlayerEventState::bumped) return NEGATIVE ? "BumpedPenalty" : "BumpedReward";
+			else if constexpr (VAR == &PlayerEventState::demo) return "DemoReward";
+			else if constexpr (VAR == &PlayerEventState::demoed) return NEGATIVE ? "DemoedPenalty" : "DemoedReward";
+			else return Reward::GetName();
 		}
 	};
 
