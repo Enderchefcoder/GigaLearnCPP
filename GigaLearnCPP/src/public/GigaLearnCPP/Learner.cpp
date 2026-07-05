@@ -24,7 +24,12 @@ using namespace RLGC;
 GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbackFn stepCallback) :
 	envCreateFn(envCreateFn), config(config), stepCallback(stepCallback)
 {
-	pybind11::initialize_interpreter();
+	// The interpreter may already be running (e.g. a previous Learner whose constructor
+	//	threw, or a host application that embeds Python itself)
+	if (!Py_IsInitialized()) {
+		pybind11::initialize_interpreter();
+		_ownsPyInterpreter = true;
+	}
 
 	{
 		// Make sure Python can find our scripts (e.g. "python_scripts/metric_receiver.py"),
@@ -213,6 +218,11 @@ void GGL::Learner::SaveStats(std::filesystem::path path) {
 	j["total_timesteps"] = totalTimesteps;
 	j["total_iterations"] = totalIterations;
 
+	// Environment metadata, checked on load to catch obs builder/action parser changes early
+	j["obs_size"] = obsSize;
+	j["num_actions"] = numActions;
+	j["tick_skip"] = config.tickSkip;
+
 	if (config.sendMetrics)
 		j["run_id"] = metricSender->curRunID;
 
@@ -241,6 +251,27 @@ void GGL::Learner::LoadStats(std::filesystem::path path) {
 	json j = json::parse(fIn);
 	totalTimesteps = j["total_timesteps"];
 	totalIterations = j["total_iterations"];
+
+	// Catch incompatible env changes before the cryptic model-size error would
+	if (j.contains("obs_size") && (int)j["obs_size"] != obsSize)
+		RG_ERR_CLOSE(
+			ERROR_PREFIX << "This checkpoint was trained with obs size " << j["obs_size"] << ", " <<
+			"but the current obs builder produces obs of size " << obsSize << ".\n" <<
+			"Your obs builder (or team sizes) changed; either revert it, use transfer learning, or start a new checkpoint folder."
+		);
+
+	if (j.contains("num_actions") && (int)j["num_actions"] != numActions)
+		RG_ERR_CLOSE(
+			ERROR_PREFIX << "This checkpoint was trained with " << j["num_actions"] << " actions, " <<
+			"but the current action parser has " << numActions << ".\n" <<
+			"Your action parser changed; either revert it, use transfer learning, or start a new checkpoint folder."
+		);
+
+	if (j.contains("tick_skip") && (int)j["tick_skip"] != config.tickSkip)
+		RG_LOG(
+			"WARNING: This checkpoint was trained with tickSkip = " << j["tick_skip"] <<
+			", but the current config uses tickSkip = " << config.tickSkip << " (the game speed the policy sees has changed)"
+		);
 
 	if (j.contains("run_id"))
 		runID = j["run_id"];
@@ -1132,7 +1163,16 @@ void GGL::Learner::Start() {
 				if (!config.checkpointFolder.empty()) {
 					if (timestepLimitReached || (totalTimesteps / config.tsPerSave > prevTimesteps / config.tsPerSave)) {
 						// Auto-save
-						Save();
+						// A failed auto-save (e.g. disk full) is not worth killing the run over,
+						//	we can just try again at the next save interval
+						try {
+							Save();
+						} catch (std::exception& e) {
+							RG_LOG(
+								"WARNING: Failed to save checkpoint (training continues, will retry at the next save interval).\n" <<
+								"Exception: " << e.what()
+							);
+						}
 					}
 				}
 
@@ -1189,5 +1229,7 @@ GGL::Learner::~Learner() {
 	delete envSet;
 	delete returnStat;
 	delete obsStat;
-	pybind11::finalize_interpreter();
+
+	if (_ownsPyInterpreter)
+		pybind11::finalize_interpreter();
 }

@@ -74,6 +74,10 @@ def init(py_exec_path, project, group, name, id=None):
 
 def add_metrics(metrics):
 	if wandb_run is not None:
-		wandb_run.log(metrics)
+		# wandb.log() can raise on network/service errors; don't let that kill training
+		try:
+			wandb_run.log(metrics)
+		except Exception as e:
+			print(f"[metric_receiver] wandb.log() failed (training continues): {repr(e)}")
 	elif fallback_file is not None:
 		fallback_file.write(json.dumps(metrics) + "\n")

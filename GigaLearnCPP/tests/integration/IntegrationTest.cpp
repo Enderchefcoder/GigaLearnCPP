@@ -210,7 +210,28 @@ int main(int argc, char* argv[]) {
 		delete learner;
 	}
 
-	{ // Phase 3: load the trained policy with InferUnit and infer actions
+	{ // Phase 3: loading the checkpoint with a changed obs size must fail with a clear error
+		auto cfg = MakeTestConfig(checkpointFolder);
+
+		// Same arenas, but padded for 3 players per team -> different obs size
+		auto envCreateFnBiggerObs = [](int index) {
+			EnvCreateResult result = EnvCreateFunc(index);
+			delete result.obsBuilder;
+			result.obsBuilder = new DefaultObsPadded(MAX_PLAYERS_PER_TEAM + 1);
+			return result;
+		};
+
+		bool threw = false;
+		try {
+			Learner learner = Learner(envCreateFnBiggerObs, cfg);
+		} catch (std::exception& e) {
+			threw = true;
+			INTEG_CHECK(std::string(e.what()).find("obs size") != std::string::npos);
+		}
+		INTEG_CHECK(threw);
+	}
+
+	{ // Phase 4: load the trained policy with InferUnit and infer actions
 		int64_t newestCheckpoint = *Utils::FindNumberedDirs(checkpointFolder).rbegin();
 
 		auto obsBuilder = new DefaultObsPadded(MAX_PLAYERS_PER_TEAM);

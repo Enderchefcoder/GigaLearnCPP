@@ -36,6 +36,9 @@ namespace GGL {
 			totalTimesteps = 0,
 			totalIterations = 0;
 
+		// Whether this learner started the embedded Python interpreter (and thus must finalize it)
+		bool _ownsPyInterpreter = false;
+
 		StepCallbackFn stepCallback = NULL;
 
 		Learner(RLGC::EnvCreateFn envCreateFunc, LearnerConfig config, StepCallbackFn stepCallback = NULL);

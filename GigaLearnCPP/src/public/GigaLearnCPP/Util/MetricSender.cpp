@@ -48,7 +48,8 @@ void GGL::MetricSender::Send(const Report& report) {
 	try {
 		impl->pyMod.attr("add_metrics")(reportDict);
 	} catch (std::exception& e) {
-		RG_ERR_CLOSE("MetricSender: Failed to add metrics, exception: " << e.what());
+		// Metric delivery failures (e.g. wandb network hiccups) should never kill a training run
+		RG_LOG("WARNING: MetricSender failed to send metrics (training continues), exception: " << e.what());
 	}
 }
 
