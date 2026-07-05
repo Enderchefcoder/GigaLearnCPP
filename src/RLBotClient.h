@@ -31,6 +31,12 @@ public:
 	float prevTime = 0;
 	int ticks = -1;
 
+	// Maps RLBot's boost pad ordering to RLGymCPP's (RLBot's field info pad order
+	//	does not match CommonValues::BOOST_LOCATIONS)
+	// Empty if the mapping hasn't been built or the arena's pads don't match
+	std::vector<int> boostPadMap = {};
+	bool triedBuildingBoostPadMap = false;
+
 	RLBotBot(int _index, int _team, std::string _name, const RLBotParams& params);
 	~RLBotBot();
 
