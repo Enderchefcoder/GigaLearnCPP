@@ -93,7 +93,9 @@ Both are plain Python files next to the executable — edit them freely; the exe
 
 ## Performance notes
 
+- **Torch thread management**: torch's idle intra-op workers spin-wait, starving the env threads during collection. The learner limits torch to `collectionTorchThreads` (default 1) while collecting and restores the full count for learning — on a 4-core CPU test machine this made collection 2.4x faster (+58% overall). Set it to 0 for torch's default behavior.
 - **Collection throughput** scales with `numGames` and CPU threads until inference becomes the bottleneck; GPU + `useHalfPrecision` helps large models
 - **Consumption throughput** is GPU-bound; `miniBatchSize` trades VRAM for speed
+- **`-DGGL_NATIVE_ARCH=ON`** compiles the simulation for your exact CPU (faster stepping, non-portable binaries)
 - The obs NaN check, tensor conversions, and GAE are deliberately flat, vectorizable loops — profile before "optimizing" them further
 - Half precision (bfloat16) is only used for collection/inference; learning always runs fp32
