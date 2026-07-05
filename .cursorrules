@@ -22,7 +22,16 @@
 
 ## Task: Improve GigaLearnCPP (bugs, speed, docs, setup, roadmap) — branch cursor/improve-gigalearn-e1ff, PR #1
 
-### Status: COMPLETE — all items done, verified, committed, pushed, PR updated
+### Status: COMPLETE (round 2 finished) — all items done, verified, committed, pushed, PR updated
+
+### Round 2 additions
+[X] NaN physics-divergence recovery (auto-reset arenas, discard poisoned episodes, Env NaN Resets metric, fail-fast for deterministic bugs)
+[X] End-to-end integration test in CI (in-memory rounded-box mesh, real CPU training, save/resume, InferUnit) — 15/15 local, green on GitHub
+[X] cfg.timestepLimit (clean finite runs)
+[X] KL early stop verified engaging; gradClipNorm option; InferUnit fast tensors; skill matches skip log probs
+[X] Boost pad timer perspective bug (orange got blue's timers) + obs mirror-symmetry test
+[X] pImpl'd MetricSender/RenderSender (no pybind11 leak into public headers, warning-free first-party build)
+[X] 19-min all-subsystems soak: 26M steps, 5016 iters, RSS flat (+0.1MB) -> no leaks, 0 warnings
 
 [X] Full codebase audit (learner, PPO, GAE, envset, models, utils, obs/actions/rewards, RLBot, tools, python scripts)
 [X] 25+ bugs fixed (see PR body / commit messages for the full list); highlights:
