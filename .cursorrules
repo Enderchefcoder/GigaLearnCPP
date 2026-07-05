@@ -24,6 +24,15 @@
 
 ### Status: COMPLETE (round 2 finished) — all items done, verified, committed, pushed, PR updated
 
+### Round 3 additions
+[X] PROFILED collection (gperftools): 55% CPU burned in OMP spin-wait -> torch threads limited to 1 during collection, restored for learning: collection 2.4x faster, overall +58% (27k->43k steps/s on 4-core VM). cfg.collectionTorchThreads.
+[X] Windows (MSVC) CI job: builds + all tests pass on windows-2022 (primary user platform now verified)
+[X] python_scripts copied next to binaries for multi-config generators (VS Release dir)
+[X] Learner::SetLearningRates/SetEntropyScale + getters (runtime schedules from step callback) + docs example
+[X] cfg.oldVersionRecencyBias (PFSP-style recent-opponent bias, uniform default)
+[X] Half-precision bf16 test (tracks fp32, lazy refresh path); integration test now mixed 1v1+2v2 with DefaultObsPadded
+[X] Rejected on evidence: Gumbel-max sampling (5.7x slower than multinomial on CPU), KMP_BLOCKTIME (no effect)
+
 ### Round 2 additions
 [X] NaN physics-divergence recovery (auto-reset arenas, discard poisoned episodes, Env NaN Resets metric, fail-fast for deterministic bugs)
 [X] End-to-end integration test in CI (in-memory rounded-box mesh, real CPU training, save/resume, InferUnit) — 15/15 local, green on GitHub
