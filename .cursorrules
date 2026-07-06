@@ -24,6 +24,12 @@
 
 ### Status: COMPLETE (round 2 finished) — all items done, verified, committed, pushed, PR updated
 
+### Round 8 additions
+[X] ASAN pass: 0 errors across 59 unit tests + full integration (heap bugs now verified clean; UBSan already in CI)
+[X] GAE randomized property test: 100 random episode structures vs reference implementation
+[X] Transfer learning validated END TO END (integration phase 5: old policy -> stacked-obs policy); StartTransferLearn honors timestepLimit
+[X] RLBot deployment example (src/rlbot_example/ -> GigaLearnRLBot target, GGL_BUILD_RLBOT_EXAMPLE=ON, compiled in Linux CI)
+
 ### Round 7 additions
 [X] UBSan find + fix: btWheelInfo left RaycastInfo/dynamics fields uninitialized (first-tick car behavior read stack garbage; nondeterministic). Upstream bullet quirk.
 [X] UBSan CI job (Linux, -fno-sanitize-recover, unit + integration) - 3 CI jobs all green
