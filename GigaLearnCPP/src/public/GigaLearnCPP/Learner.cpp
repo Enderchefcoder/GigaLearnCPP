@@ -552,11 +552,17 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 
 				if (limitCollectionTorchThreads)
 					at::set_num_threads(config.collectionTorchThreads);
+				int numArenas = envSet->arenas.size();
+
+				// Per-arena buffers for the parallel old-obs building below
+				auto oldObsPerArena = std::vector<FList>(numArenas);
+				auto oldMasksPerArena = std::vector<std::vector<uint8_t>>(numArenas);
+
 				for (stepsCollected = 0; stepsCollected < tlConfig.batchSize; stepsCollected += envSet->state.numPlayers) {
 					
 					auto terminals = envSet->state.terminals; // Backup
 					envSet->Reset();
-					for (int i = 0; i < envSet->arenas.size(); i++) // Manually reset old obs builders
+					for (int i = 0; i < numArenas; i++) // Manually reset old obs builders
 						if (terminals[i])
 							oldObsBuilders[i]->Reset(envSet->state.gameStates[i]);
 
@@ -564,20 +570,37 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 					torch::Tensor tStates = DIMLIST2_TO_TENSOR<float>(envSet->state.obs);
 					torch::Tensor tActionMasks = DIMLIST2_TO_TENSOR<uint8_t>(envSet->state.actionMasks);
 
-					envSet->StepFirstHalf(true);
-
 					allNewObs += envSet->state.obs.data;
 					allNewActionMasks += envSet->state.actionMasks.data;
 
-					// Run all old obs and old action parser on each player
-					// TODO: Could be multithreaded
-					for (int arenaIdx = 0; arenaIdx < envSet->arenas.size(); arenaIdx++) {
-						auto& gs = envSet->state.gameStates[arenaIdx];
-						for (auto& player : gs.players) {
-							allOldObs += oldObsBuilders[arenaIdx]->BuildObs(player, gs);
-							allOldActionMasks += oldActionParsers[arenaIdx]->GetActionMask(player, gs);
+					// Build all old obs and old action masks, one thread pool job per arena
+					// (Must happen before StepFirstHalf(), which starts mutating the game states)
+					g_ThreadPool.StartBatchedJobs(
+						[&](int arenaIdx) {
+							auto& gs = envSet->state.gameStates[arenaIdx];
+							auto& obsOut = oldObsPerArena[arenaIdx];
+							auto& masksOut = oldMasksPerArena[arenaIdx];
+							obsOut.clear();
+							masksOut.clear();
 
-							if (tlConfig.mapActsFn) {
+							for (auto& player : gs.players) {
+								obsOut += oldObsBuilders[arenaIdx]->BuildObs(player, gs);
+								masksOut += oldActionParsers[arenaIdx]->GetActionMask(player, gs);
+							}
+						},
+						numArenas, false
+					);
+
+					for (int arenaIdx = 0; arenaIdx < numArenas; arenaIdx++) {
+						allOldObs += oldObsPerArena[arenaIdx];
+						allOldActionMasks += oldMasksPerArena[arenaIdx];
+					}
+
+					// The action map function may be stateful, so it is called serially
+					if (tlConfig.mapActsFn) {
+						for (int arenaIdx = 0; arenaIdx < numArenas; arenaIdx++) {
+							auto& gs = envSet->state.gameStates[arenaIdx];
+							for (auto& player : gs.players) {
 								auto curMap = tlConfig.mapActsFn(player, gs);
 								if (curMap.size() != numActions)
 									RG_ERR_CLOSE("StartTransferLearn: Your action map must have the same size as the new action parser's actions");
@@ -585,6 +608,8 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 							}
 						}
 					}
+
+					envSet->StepFirstHalf(true);
 
 					ppo->InferActions(
 						tStates.to(ppo->device, true), tActionMasks.to(ppo->device, true), 
@@ -981,10 +1006,11 @@ void GGL::Learner::Start() {
 						}
 
 						if (!render && obsStat) {
-							// TODO: This samples from old versions too
-							int numSamples = RS_MIN(envSet->state.numPlayers, config.maxObsSamples);
+							// NOTE: Only samples obs of players controlled by the current policy,
+							//	so old-version opponents don't bias the running statistics
+							int numSamples = RS_MIN((int)newPlayerIndices.size(), config.maxObsSamples);
 							for (int i = 0; i < numSamples; i++) {
-								int idx = Math::RandInt(0, envSet->state.numPlayers);
+								int idx = newPlayerIndices[Math::RandInt(0, newPlayerIndices.size())];
 								obsStat->IncrementRow(&envSet->state.obs.At(idx, 0));
 							}
 
