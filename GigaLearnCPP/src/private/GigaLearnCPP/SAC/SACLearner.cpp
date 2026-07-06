@@ -9,9 +9,10 @@
 
 using namespace torch;
 
-// The entropy temperature is a lone scalar (not a Model), so it gets its own save files
-constexpr const char* ENT_COEF_FILE_NAME = "SAC_LOG_ENT_COEF.lt";
-constexpr const char* ENT_COEF_OPTIM_FILE_NAME = "SAC_LOG_ENT_COEF_OPTIM.lt";
+// SAC state that isn't part of any Model: the entropy temperature and the gradient step counter
+// (named entries in one archive, so more can be added without changing the file layout)
+constexpr const char* EXTRA_STATE_FILE_NAME = "SAC_STATE.lt";
+constexpr const char* ENT_COEF_OPTIM_FILE_NAME = "SAC_ENT_COEF_OPTIM.lt";
 
 GGL::SACLearner::SACLearner(int obsSize, int numActions, SACLearnerConfig _config, Device _device)
 	: AlgoLearner(_device), config(_config), numActions(numActions) {
@@ -127,6 +128,60 @@ torch::Tensor GGL::SACLearner::ComputeQTargets(
 	auto nextV = (nextMasksF * nextProbs * (minNextTargetQ - entCoef * nextLogProbs)).sum(-1);
 
 	return rewards + gamma * (1 - dones) * nextV;
+}
+
+GGL::ReplayTransitions GGL::SACLearner::BuildTransitions(
+	torch::Tensor states, torch::Tensor actionMasks,
+	torch::Tensor actions, torch::Tensor rewards, torch::Tensor terminals,
+	torch::Tensor truncNextStates, torch::Tensor truncNextMasks) {
+
+	RG_NO_GRAD;
+
+	int64_t numSteps = states.size(0);
+	RG_ASSERT(numSteps > 0);
+
+	{ // The experience must only contain complete episodes (matches GAE's requirement)
+		int8_t lastTerminal = terminals[numSteps - 1].item<int8_t>();
+		if (lastTerminal == RLGC::TerminalType::NOT_TERMINAL)
+			RG_ERR_CLOSE(
+				"SACLearner::BuildTransitions(): The last timestep must end an episode (terminal or truncated), " <<
+				"but it is not terminal. Experience must only contain complete episodes."
+			);
+	}
+
+	// Each timestep's next state is simply the following row of the same episode
+	// The last row of each episode is fixed up below (it has no following row):
+	//	- Truncated episodes bootstrap from their saved truncation state
+	//	- Normally-ended episodes have their (rolled, wrong) next state ignored via done = 1
+	torch::Tensor nextStates = torch::roll(states, -1, 0);
+	torch::Tensor nextActionMasks = torch::roll(actionMasks, -1, 0);
+
+	// NOTE: index_copy_() requires int64 indices (nonzero() already returns them)
+	torch::Tensor truncIndices = (terminals == RLGC::TerminalType::TRUNCATED).nonzero().flatten();
+	int64_t numTruncSaved = truncNextStates.defined() ? truncNextStates.size(0) : 0;
+	if (truncIndices.size(0) != numTruncSaved)
+		RG_ERR_CLOSE(
+			"SACLearner::BuildTransitions(): Experience has " << truncIndices.size(0) << " truncated timestep(s), " <<
+			"but " << numTruncSaved << " truncation bootstrap state(s) were saved"
+		);
+
+	if (numTruncSaved > 0) {
+		// Truncation states were appended in episode-finish order,
+		//	which is exactly the order truncated rows appear in the flattened experience
+		nextStates.index_copy_(0, truncIndices, truncNextStates);
+		nextActionMasks.index_copy_(0, truncIndices, truncNextMasks);
+	}
+
+	ReplayTransitions transitions = {};
+	transitions.states = states;
+	transitions.actions = actions;
+	transitions.rewards = rewards;
+	transitions.nextStates = nextStates;
+	transitions.actionMasks = actionMasks;
+	transitions.nextActionMasks = nextActionMasks;
+	// Only real episode ends stop the bootstrap (truncations bootstrap from their next state)
+	transitions.dones = (terminals == RLGC::TerminalType::NORMAL).to(torch::kFloat32);
+	return transitions;
 }
 
 void GGL::SACLearner::UpdateTargets(float tau) {
@@ -315,9 +370,11 @@ void GGL::SACLearner::SaveTo(std::filesystem::path folderPath) {
 	models.Save(folderPath);
 	targetModels.Save(folderPath, false); // Target nets have no meaningful optimizer state
 
-	{ // Save the entropy coef (and its optimizer, if auto-tuned)
-		torch::Tensor logEntCoefCPU = logEntCoef.detach().cpu();
-		torch::save(logEntCoefCPU, (folderPath / ENT_COEF_FILE_NAME).string());
+	{ // Save the non-Model state: the entropy coef and the gradient step counter
+		torch::serialize::OutputArchive stateArchive;
+		stateArchive.write("log_ent_coef", logEntCoef.detach().cpu());
+		stateArchive.write("total_grad_steps", torch::tensor(totalGradSteps, torch::kInt64));
+		stateArchive.save_to((folderPath / EXTRA_STATE_FILE_NAME).string());
 
 		if (entCoefOptim) {
 			torch::serialize::OutputArchive optimArchive;
@@ -349,19 +406,29 @@ void GGL::SACLearner::LoadFrom(std::filesystem::path folderPath) {
 				for (int i = 0; i < fromParams.size(); i++)
 					toParams[i].copy_(fromParams[i], true);
 			}
+
+			// Loading can replace the parameter tensors, so re-freeze them
+			//	(target nets are only ever written by Polyak averaging)
+			for (auto& param : target->parameters())
+				param.set_requires_grad(false);
 		}
 	}
 
-	{ // Load the entropy coef
-		auto entCoefPath = folderPath / ENT_COEF_FILE_NAME;
-		if (std::filesystem::exists(entCoefPath)) {
-			torch::Tensor loaded;
-			torch::load(loaded, entCoefPath.string());
+	{ // Load the non-Model state (entropy coef + gradient step counter)
+		auto statePath = folderPath / EXTRA_STATE_FILE_NAME;
+		if (std::filesystem::exists(statePath)) {
+			torch::serialize::InputArchive stateArchive;
+			stateArchive.load_from(statePath.string(), torch::kCPU);
+
+			torch::Tensor loadedLogEntCoef, loadedGradSteps;
+			stateArchive.read("log_ent_coef", loadedLogEntCoef);
+			stateArchive.read("total_grad_steps", loadedGradSteps);
 
 			RG_NO_GRAD;
-			logEntCoef.copy_(loaded.to(device));
+			logEntCoef.copy_(loadedLogEntCoef.to(device));
+			totalGradSteps = loadedGradSteps.item<int64_t>();
 		} else {
-			RG_LOG("Warning: No saved entropy coef found at " << entCoefPath << ", using the config value");
+			RG_LOG("Warning: No saved SAC state found at " << statePath << ", the entropy coef will use the config value");
 		}
 
 		auto entCoefOptimPath = folderPath / ENT_COEF_OPTIM_FILE_NAME;

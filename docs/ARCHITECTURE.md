@@ -79,7 +79,7 @@ For SAC, the same policy (+ optional policy-only shared head), plus twin Q nets 
 
 Action masking sets invalid actions' logits to a huge negative value before softmax, so they get ~zero probability during collection, learning, and inference. SAC additionally multiplies invalid actions out of its expectations, so masked actions' Q values can never leak into targets.
 
-Checkpoints store each model (`POLICY.lt`, `CRITIC.lt`, `SHARED_HEAD.lt`; for SAC `Q1.lt`, `Q2.lt`, `Q1_TARGET.lt`, `Q2_TARGET.lt`, and the entropy temperature `SAC_LOG_ENT_COEF.lt`) plus optimizer state (`*_OPTIM.lt`) plus `RUNNING_STATS.json` (timesteps, return/obs stats, wandb run ID, and the algorithm that owns the folder). Model files are raw libtorch serialization and can be inspected from Python (`tools/checkpoint_converter.py`).
+Checkpoints store each model (`POLICY.lt`, `CRITIC.lt`, `SHARED_HEAD.lt`; for SAC `Q1.lt`, `Q2.lt`, `Q1_TARGET.lt`, `Q2_TARGET.lt`, plus the entropy temperature and gradient-step counter in `SAC_STATE.lt`) plus optimizer state (`*_OPTIM.lt`) plus `RUNNING_STATS.json` (timesteps, return/obs stats, wandb run ID, and the algorithm that owns the folder). Model files are raw libtorch serialization and can be inspected from Python (`tools/checkpoint_converter.py`).
 
 ## Environment framework (RLGymCPP)
 

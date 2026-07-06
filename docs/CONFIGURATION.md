@@ -166,7 +166,7 @@ Alpha scales the entropy bonus: bigger alpha = more exploration. By default it i
 | `autoEntCoef` | true | Auto-tune alpha toward `targetEntropy = targetEntropyScale * log(numActions)`. |
 | `entCoef` | 0.2 | Fixed alpha if `autoEntCoef` is off, otherwise the initial alpha. |
 | `entCoefLR` | 3e-4 | Learning rate of the alpha auto-tuner. |
-| `targetEntropyScale` | 0.7 | Fraction of the maximum possible entropy to target. The SAC-Discrete paper used 0.98, which tends to over-explore; lower it if your bot stays too random, raise it if the policy collapses to a few actions. Watch `SAC/Entropy` vs `SAC/Target Entropy` and `SAC/Entropy Coef` in the metrics. |
+| `targetEntropyScale` | 0.7 | Fraction of the maximum possible entropy (`log(numActions)`, over the *full* action table) to target. The SAC-Discrete paper used 0.98, which tends to over-explore; lower it if your bot stays too random, raise it if the policy collapses to a few actions. Note that action masking lowers the achievable entropy in masked states, so with heavily-masked action parsers, prefer lower scales. Watch `SAC/Entropy` vs `SAC/Target Entropy` and `SAC/Entropy Coef` in the metrics. |
 
 ### Models (`policy`, `qNet`, `sharedHead`)
 

@@ -85,6 +85,77 @@ TEST_CASE(SACLearner_QTargetsIgnoreMaskedActions) {
 	CHECK_NEAR(targets[0].item<float>(), expected, 1e-4);
 }
 
+TEST_CASE(SACLearner_BuildTransitionsLayout) {
+	RG_NO_GRAD;
+
+	// Flattened complete episodes, exactly like the collection loop produces:
+	//	Episode A: rows 0-2 (ends TRUNCATED), episode B: rows 3-4 (ends NORMAL), episode C: row 5 (ends TRUNCATED)
+	auto states = torch::arange(0, 12, torch::kFloat32).reshape({ 6, 2 });
+	auto masks = torch::ones({ 6, 2 }, torch::kUInt8);
+	masks[1][0] = 0; // Distinguishable mask row (row 1)
+	auto actions = torch::zeros({ 6 }, torch::kInt64);
+	auto rewards = torch::arange(0, 6, torch::kFloat32);
+
+	auto terminals = torch::tensor(
+		{ (int8_t)RLGC::TerminalType::NOT_TERMINAL, (int8_t)RLGC::TerminalType::NOT_TERMINAL, (int8_t)RLGC::TerminalType::TRUNCATED,
+		  (int8_t)RLGC::TerminalType::NOT_TERMINAL, (int8_t)RLGC::TerminalType::NORMAL,
+		  (int8_t)RLGC::TerminalType::TRUNCATED },
+		torch::kInt8
+	);
+
+	// Truncation bootstrap states, in episode-finish order (row 2's first, then row 5's)
+	auto truncStates = torch::tensor({ { 100.f, 101.f }, { 200.f, 201.f } });
+	auto truncMasks = torch::zeros({ 2, 2 }, torch::kUInt8);
+	truncMasks[1][1] = 1;
+
+	auto t = SACLearner::BuildTransitions(states, masks, actions, rewards, terminals, truncStates, truncMasks);
+
+	// Mid-episode rows: next state is simply the following row
+	CHECK_TRUE(torch::equal(t.nextStates[0], states[1]));
+	CHECK_TRUE(torch::equal(t.nextStates[1], states[2]));
+	CHECK_TRUE(torch::equal(t.nextStates[3], states[4]));
+	CHECK_TRUE(torch::equal(t.nextActionMasks[0], masks[1]));
+
+	// Truncated rows bootstrap from their saved states/masks, consumed in order
+	CHECK_TRUE(torch::equal(t.nextStates[2], truncStates[0]));
+	CHECK_TRUE(torch::equal(t.nextStates[5], truncStates[1]));
+	CHECK_TRUE(torch::equal(t.nextActionMasks[2], truncMasks[0]));
+	CHECK_TRUE(torch::equal(t.nextActionMasks[5], truncMasks[1]));
+
+	// Only the NORMAL episode end sets done (truncations bootstrap instead)
+	auto dones = TENSOR_TO_VEC<float>(t.dones);
+	std::vector<float> expectedDones = { 0, 0, 0, 0, 1, 0 };
+	CHECK_TRUE(dones == expectedDones);
+
+	// Everything else passes through unchanged
+	CHECK_TRUE(torch::equal(t.states, states));
+	CHECK_TRUE(torch::equal(t.actions, actions));
+	CHECK_TRUE(torch::equal(t.rewards, rewards));
+
+	// Mismatched truncation-state count must be rejected
+	CHECK_THROWS(SACLearner::BuildTransitions(states, masks, actions, rewards, terminals, truncStates.slice(0, 0, 1), truncMasks.slice(0, 0, 1)));
+
+	// Experience not ending in a terminal must be rejected
+	auto badTerminals = terminals.clone();
+	badTerminals[5] = (int8_t)RLGC::TerminalType::NOT_TERMINAL;
+	CHECK_THROWS(SACLearner::BuildTransitions(states, masks, actions, rewards, badTerminals, truncStates.slice(0, 0, 1), truncMasks.slice(0, 0, 1)));
+}
+
+TEST_CASE(SACLearner_LearnRejectsDeterministic) {
+	torch::manual_seed(123);
+
+	SACLearnerConfig config = MakeTestSACConfig();
+	config.deterministic = true;
+
+	auto learner = SACLearner(BANDIT_OBS_SIZE, BANDIT_NUM_ACTIONS, config, torch::kCPU);
+
+	ReplayBuffer buffer = ReplayBuffer(1024, BANDIT_OBS_SIZE, BANDIT_NUM_ACTIONS);
+	FillBanditReplay(buffer, 1024);
+
+	Report report = {};
+	CHECK_THROWS(learner.Learn(buffer, report));
+}
+
 TEST_CASE(SACLearner_TargetNetsStartAsCopies) {
 	RG_NO_GRAD;
 	torch::manual_seed(123);
@@ -238,6 +309,11 @@ TEST_CASE(SACLearner_SaveLoadRoundtrip) {
 		loaded.targetModels["q2_target"]->Forward(obs, false)
 	));
 	CHECK_NEAR(loaded.GetEntCoef(), learner.GetEntCoef(), 1e-6);
+	CHECK_EQ(loaded.totalGradSteps, learner.totalGradSteps);
+
+	// Target nets must stay frozen after loading (only Polyak averaging writes them)
+	for (auto& param : loaded.targetModels["q1_target"]->parameters())
+		CHECK_FALSE(param.requires_grad());
 
 	fs::remove_all(saveFolder);
 }

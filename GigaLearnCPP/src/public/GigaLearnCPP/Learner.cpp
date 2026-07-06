@@ -1336,6 +1336,13 @@ void GGL::Learner::Start() {
 					torch::Tensor tRewards = VEC_TO_TENSOR(combinedTraj.rewards);
 					torch::Tensor tTerminals = VEC_TO_TENSOR(combinedTraj.terminals);
 
+					// Truncation bootstrap states (there could be none)
+					torch::Tensor tTruncNextStates, tTruncNextMasks;
+					if (!combinedTraj.nextStates.empty()) {
+						tTruncNextStates = VEC_TO_TENSOR(combinedTraj.nextStates).reshape({ -1, obsSize });
+						tTruncNextMasks = VEC_TO_TENSOR(combinedTraj.nextActionMasks).reshape({ -1, numActions });
+					}
+
 					report["Average Step Reward"] = tRewards.mean().item<float>();
 					report["Collected Timesteps"] = stepsCollected;
 
@@ -1343,41 +1350,9 @@ void GGL::Learner::Start() {
 					if (normalTerminalPortion > 0)
 						report["Episode Length"] = 1.f / normalTerminalPortion;
 
-					// Each timestep's next state is simply the following row of the same episode
-					// The last row of each episode is fixed up below (it has no following row):
-					//	- Truncated episodes bootstrap from their saved truncation state
-					//	- Normally-ended episodes have their (rolled, wrong) next state ignored via done = 1
-					torch::Tensor tNextStates = torch::roll(tStates, -1, 0);
-					torch::Tensor tNextActionMasks = torch::roll(tActionMasks, -1, 0);
-
-					// NOTE: index_copy_() requires int64 indices (nonzero() already returns them)
-					torch::Tensor tTruncIndices = (tTerminals == RLGC::TerminalType::TRUNCATED).nonzero().flatten();
-					if (!combinedTraj.nextStates.empty()) {
-						// Truncation states were appended in episode-finish order,
-						//	which is exactly the order truncated rows appear in the combined trajectory
-						torch::Tensor tTruncNextStates = VEC_TO_TENSOR(combinedTraj.nextStates).reshape({ -1, obsSize });
-						torch::Tensor tTruncNextMasks = VEC_TO_TENSOR(combinedTraj.nextActionMasks).reshape({ -1, numActions });
-						RG_ASSERT(tTruncIndices.size(0) == tTruncNextStates.size(0));
-
-						tNextStates.index_copy_(0, tTruncIndices, tTruncNextStates);
-						tNextActionMasks.index_copy_(0, tTruncIndices, tTruncNextMasks);
-					} else {
-						RG_ASSERT(tTruncIndices.size(0) == 0);
-					}
-
-					// Only real episode ends stop the bootstrap (truncations bootstrap from their next state)
-					torch::Tensor tDones = (tTerminals == RLGC::TerminalType::NORMAL).to(torch::kFloat32);
-
-					ReplayTransitions transitions = {};
-					transitions.states = tStates;
-					transitions.actions = tActions;
-					transitions.rewards = tRewards;
-					transitions.nextStates = tNextStates;
-					transitions.actionMasks = tActionMasks;
-					transitions.nextActionMasks = tNextActionMasks;
-					transitions.dones = tDones;
-
-					replayBuffer->Append(transitions);
+					replayBuffer->Append(
+						SACLearner::BuildTransitions(tStates, tActionMasks, tActions, tRewards, tTerminals, tTruncNextStates, tTruncNextMasks)
+					);
 				}
 
 				// Free CUDA cache

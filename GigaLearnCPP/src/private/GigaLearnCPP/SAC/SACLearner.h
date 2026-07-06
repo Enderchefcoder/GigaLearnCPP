@@ -54,6 +54,20 @@ namespace GGL {
 			torch::Tensor entCoef, float gamma
 		);
 
+		// Builds replay transitions from flattened complete-episode trajectories
+		//	(the layout the Learner's collection loop produces):
+		//	- Each timestep's next state is the following row of the same episode
+		//	- TRUNCATED rows bootstrap from the matching row of truncNextStates/truncNextMasks
+		//	  (which must be ordered the same way the truncated rows appear)
+		//	- Only NORMAL episode ends set done = 1 (their rolled next state is ignored via the done flag)
+		// The last row must end an episode (terminal or truncated)
+		// Pure tensor math (static so it can be unit-tested directly)
+		static ReplayTransitions BuildTransitions(
+			torch::Tensor states, torch::Tensor actionMasks,
+			torch::Tensor actions, torch::Tensor rewards, torch::Tensor terminals,
+			torch::Tensor truncNextStates, torch::Tensor truncNextMasks
+		);
+
 		// Runs config.gradientStepsPerItr gradient updates on samples from the replay buffer
 		void Learn(ReplayBuffer& replay, Report& report);
 
