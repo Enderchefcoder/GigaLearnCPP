@@ -13,6 +13,9 @@
 #endif
 #include <private/GigaLearnCPP/PPO/ExperienceBuffer.h>
 #include <private/GigaLearnCPP/PPO/GAE.h>
+#include <private/GigaLearnCPP/SAC/SACLearner.h>
+#include <private/GigaLearnCPP/SAC/ReplayBuffer.h>
+#include <private/GigaLearnCPP/Util/PolicyInference.h>
 #include <private/GigaLearnCPP/PolicyVersionManager.h>
 
 #include "Util/KeyPressDetector.h"
@@ -20,6 +23,7 @@
 #include "Util/AvgTracker.h"
 
 #include <csignal>
+#include <memory>
 
 using namespace RLGC;
 
@@ -68,8 +72,10 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 	RG_SLEEP(1000);
 #endif
 
+	bool isPPO = (config.algorithm == LearningAlgorithmType::PPO);
+
 	if (config.tsPerSave == 0)
-		config.tsPerSave = config.ppo.tsPerItr;
+		config.tsPerSave = isPPO ? config.ppo.tsPerItr : config.sac.tsPerItr;
 
 	{ // Validate config
 		if (config.numGames <= 0)
@@ -83,17 +89,20 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 				"Learner: config.actionDelay (" << config.actionDelay << ") must be from 0 to config.tickSkip (" << config.tickSkip << ")"
 			);
 
-		if (config.ppo.tsPerItr <= 0 || config.ppo.batchSize <= 0)
-			RG_ERR_CLOSE("Learner: config.ppo.tsPerItr and config.ppo.batchSize must be positive");
+		if (isPPO) {
+			if (config.ppo.tsPerItr <= 0 || config.ppo.batchSize <= 0)
+				RG_ERR_CLOSE("Learner: config.ppo.tsPerItr and config.ppo.batchSize must be positive");
 
-		if (config.ppo.batchSize > config.ppo.tsPerItr)
-			RG_LOG(
-				"WARNING: config.ppo.batchSize (" << config.ppo.batchSize << ") is larger than config.ppo.tsPerItr (" << config.ppo.tsPerItr << "), " <<
-				"iterations are only guaranteed to collect tsPerItr timesteps, so learning may fail"
-			);
+			if (config.ppo.batchSize > config.ppo.tsPerItr)
+				RG_LOG(
+					"WARNING: config.ppo.batchSize (" << config.ppo.batchSize << ") is larger than config.ppo.tsPerItr (" << config.ppo.tsPerItr << "), " <<
+					"iterations are only guaranteed to collect tsPerItr timesteps, so learning may fail"
+				);
 
-		if (config.ppo.epochs <= 0)
-			RG_ERR_CLOSE("Learner: config.ppo.epochs must be positive");
+			if (config.ppo.epochs <= 0)
+				RG_ERR_CLOSE("Learner: config.ppo.epochs must be positive");
+		}
+		// (The SAC-specific config is validated by the SACLearner constructor)
 	}
 
 	RG_LOG("Learner::Learner():");
@@ -180,10 +189,19 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 	}
 
 	try {
-		RG_LOG("\tMaking PPO learner...");
-		ppo = new PPOLearner(obsSize, numActions, config.ppo, device);
+		if (isPPO) {
+			RG_LOG("\tMaking PPO learner...");
+			ppo = new PPOLearner(obsSize, numActions, config.ppo, device);
+			sac = NULL;
+			algo = ppo;
+		} else {
+			RG_LOG("\tMaking SAC learner...");
+			sac = new SACLearner(obsSize, numActions, config.sac, device);
+			ppo = NULL;
+			algo = sac;
+		}
 	} catch (std::exception& e) {
-		RG_ERR_CLOSE("Failed to create PPO learner: " << e.what());
+		RG_ERR_CLOSE("Failed to create " << (isPPO ? "PPO" : "SAC") << " learner: " << e.what());
 	}
 
 	if (config.renderMode) {
@@ -212,7 +230,7 @@ GGL::Learner::Learner(EnvCreateFn envCreateFn, LearnerConfig config, StepCallbac
 	if (config.savePolicyVersions && !config.renderMode) {
 		if (config.checkpointFolder.empty())
 			RG_ERR_CLOSE("Cannot save/load old policy versions with no checkpoint save folder");
-		auto models = ppo->GetPolicyModels();
+		auto models = algo->GetPolicyModels();
 		versionMgr->LoadVersions(models, totalTimesteps);
 	}
 
@@ -244,6 +262,9 @@ void GGL::Learner::SaveStats(std::filesystem::path path) {
 	j["obs_size"] = obsSize;
 	j["num_actions"] = numActions;
 	j["tick_skip"] = config.tickSkip;
+
+	// Checked on load: a checkpoint folder belongs to one learning algorithm
+	j["algorithm"] = (config.algorithm == LearningAlgorithmType::PPO) ? "PPO" : "SAC";
 
 	if (config.sendMetrics)
 		j["run_id"] = metricSender->curRunID;
@@ -284,6 +305,16 @@ void GGL::Learner::LoadStats(std::filesystem::path path) {
 
 	totalTimesteps = j["total_timesteps"];
 	totalIterations = j["total_iterations"];
+
+	// A checkpoint's value/Q/optimizer state only makes sense for the algorithm that trained it
+	std::string curAlgoName = (config.algorithm == LearningAlgorithmType::PPO) ? "PPO" : "SAC";
+	if (j.contains("algorithm") && (std::string)j["algorithm"] != curAlgoName)
+		RG_ERR_CLOSE(
+			ERROR_PREFIX << "This checkpoint was trained with the " << (std::string)j["algorithm"] << " algorithm, " <<
+			"but config.algorithm is " << curAlgoName << ".\n" <<
+			"Checkpoint folders belong to one algorithm; use a new checkpoint folder to train with a different one.\n" <<
+			"(To deploy a trained policy for inference, use InferUnit, which is algorithm-agnostic.)"
+		);
 
 	// Catch incompatible env changes before the cryptic model-size error would
 	if (j.contains("obs_size") && (int)j["obs_size"] != obsSize)
@@ -338,7 +369,7 @@ void GGL::Learner::Save() {
 
 	RG_LOG("Saving to folder " << saveFolder << "...");
 	SaveStats(tmpSaveFolder / STATS_FILE_NAME);
-	ppo->SaveTo(tmpSaveFolder);
+	algo->SaveTo(tmpSaveFolder);
 
 	std::filesystem::remove_all(saveFolder);
 	std::filesystem::rename(tmpSaveFolder, saveFolder);
@@ -424,7 +455,7 @@ void GGL::Learner::Load() {
 		std::filesystem::path loadFolder = config.checkpointFolder / std::to_string(toLoad);
 		RG_LOG(" > Loading checkpoint " << loadFolder << "...");
 		LoadStats(loadFolder / STATS_FILE_NAME);
-		ppo->LoadFrom(loadFolder);
+		algo->LoadFrom(loadFolder);
 		RG_LOG(" > Done.");
 	} else {
 		RG_LOG(" > No checkpoints found, starting new model.")
@@ -432,26 +463,44 @@ void GGL::Learner::Load() {
 }
 
 void GGL::Learner::SetLearningRates(float policyLR, float criticLR) {
-	config.ppo.policyLR = policyLR;
-	config.ppo.criticLR = criticLR;
-	ppo->SetLearningRates(policyLR, criticLR);
+	if (ppo) {
+		config.ppo.policyLR = policyLR;
+		config.ppo.criticLR = criticLR;
+		ppo->SetLearningRates(policyLR, criticLR);
+	} else {
+		config.sac.policyLR = policyLR;
+		config.sac.qLR = criticLR;
+		sac->SetLearningRates(policyLR, criticLR);
+	}
 }
 
 void GGL::Learner::SetEntropyScale(float entropyScale) {
-	config.ppo.entropyScale = entropyScale;
-	ppo->config.entropyScale = entropyScale;
+	if (ppo) {
+		config.ppo.entropyScale = entropyScale;
+		ppo->config.entropyScale = entropyScale;
+	} else {
+		if (config.sac.autoEntCoef)
+			RG_ERR_CLOSE(
+				"Learner::SetEntropyScale(): Cannot set the entropy coef while config.sac.autoEntCoef is enabled " <<
+				"(alpha is auto-tuned; adjust config.sac.targetEntropyScale instead)"
+			);
+
+		config.sac.entCoef = entropyScale;
+		sac->config.entCoef = entropyScale;
+		sac->SetEntCoef(entropyScale);
+	}
 }
 
 float GGL::Learner::GetPolicyLR() const {
-	return ppo->config.policyLR;
+	return ppo ? ppo->config.policyLR : sac->config.policyLR;
 }
 
 float GGL::Learner::GetCriticLR() const {
-	return ppo->config.criticLR;
+	return ppo ? ppo->config.criticLR : sac->config.qLR;
 }
 
 float GGL::Learner::GetEntropyScale() const {
-	return ppo->config.entropyScale;
+	return ppo ? ppo->config.entropyScale : sac->GetEntCoef();
 }
 
 void GGL::Learner::StartQuitKeyThread(bool& quitPressed, std::thread& outThread) {
@@ -481,6 +530,12 @@ void GGL::Learner::StartQuitKeyThread(bool& quitPressed, std::thread& outThread)
 	outThread.detach();
 }
 void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
+
+	if (!ppo)
+		RG_ERR_CLOSE(
+			"StartTransferLearn: Transfer learning is currently only supported with the PPO algorithm.\n" <<
+			"Transfer-learn with PPO first, then start a SAC run from the resulting policy if desired."
+		);
 
 	RG_LOG("Starting transfer learning...");
 
@@ -520,7 +575,7 @@ void GGL::Learner::StartTransferLearn(const TransferLearnConfig& tlConfig) {
 	ModelSet oldModels = {};
 	{
 		RG_NO_GRAD;
-		PPOLearner::MakeModels(false, oldObsSize, oldNumActions, tlConfig.oldSharedHeadConfig, tlConfig.oldPolicyConfig, {}, ppo->device, oldModels);
+		PolicyInference::MakePolicyModels(oldObsSize, oldNumActions, tlConfig.oldSharedHeadConfig, tlConfig.oldPolicyConfig, ppo->device, oldModels);
 
 		oldModels.Load(tlConfig.oldModelsPath, false, false);
 	}
@@ -721,18 +776,22 @@ static bool ContainsNonFinite(const float* data, size_t size) {
 void GGL::Learner::Start() {
 
 	bool render = config.renderMode;
+	bool isPPO = (config.algorithm == LearningAlgorithmType::PPO);
 
 	RG_LOG("Learner::Start():");
+	RG_LOG("\tAlgorithm: " << (isPPO ? "PPO" : "SAC"));
 	RG_LOG("\tObs size: " << obsSize);
 	RG_LOG("\tAction amount: " << numActions);
 
 	if (render)
 		RG_LOG("\t(Render mode enabled)");
 
-	if (config.ppo.deterministic && !render)
+	bool deterministic = isPPO ? config.ppo.deterministic : config.sac.deterministic;
+	if (deterministic && !render)
 		RG_ERR_CLOSE(
-			"Learner::Start(): Cannot train with config.ppo.deterministic enabled.\n" <<
-			"Deterministic mode is only for inference/rendering (it does not produce the log probs PPO needs to learn)."
+			"Learner::Start(): Cannot train with deterministic mode enabled.\n" <<
+			"Deterministic mode is only for inference/rendering " <<
+			"(PPO needs the sampled log probs, and SAC needs the exploration)."
 		);
 
 	try {
@@ -744,13 +803,19 @@ void GGL::Learner::Start() {
 		//	(a second signal force-quits immediately)
 		_InstallStopSignalHandlers();
 
+		// PPO learns from the current iteration's experience only
 		ExperienceBuffer experience = ExperienceBuffer(config.randomSeed, torch::kCPU);
+
+		// SAC learns from a large replay buffer of past transitions
+		std::unique_ptr<ReplayBuffer> replayBuffer = NULL;
+		if (!isPPO && !render)
+			replayBuffer = std::make_unique<ReplayBuffer>(config.sac.replayBufferSize, obsSize, numActions);
 
 		int numPlayers = envSet->state.numPlayers;
 
 		struct Trajectory {
 			FList states, nextStates, rewards, logProbs;
-			std::vector<uint8_t> actionMasks;
+			std::vector<uint8_t> actionMasks, nextActionMasks;
 			std::vector<int8_t> terminals;
 			std::vector<int32_t> actions;
 
@@ -764,6 +829,7 @@ void GGL::Learner::Start() {
 				rewards += other.rewards;
 				logProbs += other.logProbs;
 				actionMasks += other.actionMasks;
+				nextActionMasks += other.nextActionMasks;
 				terminals += other.terminals;
 				actions += other.actions;
 			}
@@ -773,8 +839,11 @@ void GGL::Learner::Start() {
 			}
 		};
 
+		double maxEpisodeDuration = isPPO ? config.ppo.maxEpisodeDuration : config.sac.maxEpisodeDuration;
+		int64_t tsPerItr = isPPO ? config.ppo.tsPerItr : config.sac.tsPerItr;
+
 		auto trajectories = std::vector<Trajectory>(numPlayers, Trajectory{});
-		int maxEpisodeLength = (int)(config.ppo.maxEpisodeDuration * (120.f / config.tickSkip));
+		int maxEpisodeLength = (int)(maxEpisodeDuration * (120.f / config.tickSkip));
 
 		// Torch's idle intra-op worker threads spin-wait, which starves the env-stepping threads
 		//	during collection, so torch threads are limited while collecting and restored for learning
@@ -893,7 +962,7 @@ void GGL::Learner::Start() {
 					if (prevRecordedMask[i] && !recordedMask[i] && trajectories[i].Length() > 0) {
 						auto& traj = trajectories[i];
 
-						// Truncation requires the next state for the critic
+						// Truncation requires the next state, to bootstrap the value from
 						FList nextState = envSet->state.obs.GetRow(i);
 
 						if (ContainsNonFinite(nextState.data(), nextState.size())) {
@@ -907,6 +976,7 @@ void GGL::Learner::Start() {
 
 						fnStandardizeRow(nextState);
 						traj.nextStates += nextState;
+						envSet->state.actionMasks.AppendRowTo(i, traj.nextActionMasks);
 
 						pendingTruncated.Append(traj);
 						traj.Clear();
@@ -941,7 +1011,7 @@ void GGL::Learner::Start() {
 					float inferTime = 0;
 					float envStepTime = 0;
 
-					for (int step = 0; combinedTraj.Length() < config.ppo.tsPerItr || render; step++, stepsCollected += numRealPlayers) {
+					for (int step = 0; combinedTraj.Length() < tsPerItr || render; step++, stepsCollected += numRealPlayers) {
 						Timer stepTimer = {};
 						envSet->Reset();
 						envStepTime += stepTimer.Elapsed();
@@ -1043,25 +1113,28 @@ void GGL::Learner::Start() {
 
 						Timer inferTimer = {};
 
+						// SAC's replay buffer doesn't need log probs (it re-derives the policy at learn time)
+						torch::Tensor* outLogProbs = isPPO ? &tLogProbs : NULL;
+
 						if (oldVersion) {
-							torch::Tensor tdNewStates = tStates.index_select(0, tNewPlayerIndices).to(ppo->device, true);
-							torch::Tensor tdOldStates = tStates.index_select(0, tOldPlayerIndices).to(ppo->device, true);
-							torch::Tensor tdNewActionMasks = tActionMasks.index_select(0, tNewPlayerIndices).to(ppo->device, true);
-							torch::Tensor tdOldActionMasks = tActionMasks.index_select(0, tOldPlayerIndices).to(ppo->device, true);
+							torch::Tensor tdNewStates = tStates.index_select(0, tNewPlayerIndices).to(algo->device, true);
+							torch::Tensor tdOldStates = tStates.index_select(0, tOldPlayerIndices).to(algo->device, true);
+							torch::Tensor tdNewActionMasks = tActionMasks.index_select(0, tNewPlayerIndices).to(algo->device, true);
+							torch::Tensor tdOldActionMasks = tActionMasks.index_select(0, tOldPlayerIndices).to(algo->device, true);
 
 							torch::Tensor tNewActions;
 							torch::Tensor tOldActions;
 
-							ppo->InferActions(tdNewStates, tdNewActionMasks, &tNewActions, &tLogProbs);
-							ppo->InferActions(tdOldStates, tdOldActionMasks, &tOldActions, NULL, &oldVersion->models);
+							algo->InferActions(tdNewStates, tdNewActionMasks, &tNewActions, outLogProbs);
+							algo->InferActions(tdOldStates, tdOldActionMasks, &tOldActions, NULL, &oldVersion->models);
 
 							tActions = torch::zeros(numPlayers, tNewActions.dtype());
 							tActions.index_copy_(0, tNewPlayerIndices, tNewActions.cpu());
 							tActions.index_copy_(0, tOldPlayerIndices, tOldActions.cpu());
 						} else {
-							torch::Tensor tdStates = tStates.to(ppo->device, true);
-							torch::Tensor tdActionMasks = tActionMasks.to(ppo->device, true);
-							ppo->InferActions(tdStates, tdActionMasks, &tActions, &tLogProbs);
+							torch::Tensor tdStates = tStates.to(algo->device, true);
+							torch::Tensor tdActionMasks = tActionMasks.to(algo->device, true);
+							algo->InferActions(tdStates, tdActionMasks, &tActions, outLogProbs);
 							tActions = tActions.cpu();
 						}
 						inferTime += inferTimer.Elapsed();
@@ -1109,7 +1182,8 @@ void GGL::Learner::Start() {
 						for (int newPlayerIdx : newPlayerIndices) {
 							trajectories[newPlayerIdx].actions.push_back(curActions[newPlayerIdx]);
 							trajectories[newPlayerIdx].rewards += envSet->state.rewards[newPlayerIdx];
-							trajectories[newPlayerIdx].logProbs += newLogProbs[i];
+							if (!newLogProbs.empty()) // (SAC doesn't collect log probs)
+								trajectories[newPlayerIdx].logProbs += newLogProbs[i];
 							i++;
 						}
 
@@ -1139,11 +1213,12 @@ void GGL::Learner::Start() {
 							if (terminalType) {
 
 								if (terminalType == RLGC::TerminalType::TRUNCATED) {
-									// Truncation requires an additional next state for the critic
-									// NOTE: Standardized to match the states the critic is trained on
+									// Truncation requires an additional next state, to bootstrap the value from
+									// NOTE: Standardized to match the states the value estimators are trained on
 									FList nextState = envSet->state.obs.GetRow(newPlayerIdx);
 									fnStandardizeRow(nextState);
 									traj.nextStates += nextState;
+									envSet->state.actionMasks.AppendRowTo(newPlayerIdx, traj.nextActionMasks);
 								}
 
 								combinedTraj.Append(traj);
@@ -1162,7 +1237,8 @@ void GGL::Learner::Start() {
 				float collectionTime = collectionTimer.Elapsed();
 
 				Timer consumptionTimer = {};
-				{ // Process timesteps
+
+				if (isPPO) { // Process timesteps into the PPO experience buffer
 					RG_NO_GRAD;
 
 					// Make and transpose tensors
@@ -1250,18 +1326,62 @@ void GGL::Learner::Start() {
 						for (auto* t = experience.data.begin(); t != experience.data.end(); t++)
 							*t = t->to(ppo->device, true);
 					}
+				} else { // Process timesteps into SAC replay transitions
+					RG_NO_GRAD;
+
+					torch::Tensor tStates = VEC_TO_TENSOR(combinedTraj.states).reshape({ -1, obsSize });
+					torch::Tensor tActionMasks = VEC_TO_TENSOR(combinedTraj.actionMasks).reshape({ -1, numActions });
+					// NOTE: Actions are used as gather() indices during learning, which requires int64
+					torch::Tensor tActions = VEC_TO_TENSOR(combinedTraj.actions).to(torch::kInt64);
+					torch::Tensor tRewards = VEC_TO_TENSOR(combinedTraj.rewards);
+					torch::Tensor tTerminals = VEC_TO_TENSOR(combinedTraj.terminals);
+
+					// Truncation bootstrap states (there could be none)
+					torch::Tensor tTruncNextStates, tTruncNextMasks;
+					if (!combinedTraj.nextStates.empty()) {
+						tTruncNextStates = VEC_TO_TENSOR(combinedTraj.nextStates).reshape({ -1, obsSize });
+						tTruncNextMasks = VEC_TO_TENSOR(combinedTraj.nextActionMasks).reshape({ -1, numActions });
+					}
+
+					report["Average Step Reward"] = tRewards.mean().item<float>();
+					report["Collected Timesteps"] = stepsCollected;
+
+					float normalTerminalPortion = (tTerminals == RLGC::TerminalType::NORMAL).to(torch::kFloat32).mean().item<float>();
+					if (normalTerminalPortion > 0)
+						report["Episode Length"] = 1.f / normalTerminalPortion;
+
+					replayBuffer->Append(
+						SACLearner::BuildTransitions(tStates, tActionMasks, tActions, tRewards, tTerminals, tTruncNextStates, tTruncNextMasks)
+					);
 				}
 
 				// Free CUDA cache
 #ifdef RG_CUDA_SUPPORT
-				if (ppo->device.is_cuda())
+				if (algo->device.is_cuda())
 					c10::cuda::CUDACachingAllocator::emptyCache();
 #endif
 
 				// Learn
-				Timer learnTimer = {};
-				ppo->Learn(experience, report, isFirstIteration);
-				report["PPO Learn Time"] = learnTimer.Elapsed();
+				if (isPPO) {
+					Timer learnTimer = {};
+					ppo->Learn(experience, report, isFirstIteration);
+					report["PPO Learn Time"] = learnTimer.Elapsed();
+				} else {
+					// SAC waits for some starting experience before learning
+					//	(so the replay buffer holds reasonably diverse data)
+					bool warmedUp =
+						(int64_t)(totalTimesteps + stepsCollected) >= config.sac.learningStartTimesteps &&
+						replayBuffer->Size() >= config.sac.batchSize;
+
+					report["SAC/Learning Active"] = warmedUp;
+					report["SAC/Replay Buffer Size"] = replayBuffer->Size();
+
+					if (warmedUp) {
+						Timer learnTimer = {};
+						sac->Learn(*replayBuffer, report);
+						report["SAC Learn Time"] = learnTimer.Elapsed();
+					}
+				}
 
 				// Set metrics
 				float consumptionTime = consumptionTimer.Elapsed();
@@ -1278,7 +1398,7 @@ void GGL::Learner::Start() {
 				report["Total Iterations"] = totalIterations;
 
 				if (versionMgr)
-					versionMgr->OnIteration(ppo, report, totalTimesteps, prevTimesteps);
+					versionMgr->OnIteration(algo, report, totalTimesteps, prevTimesteps);
 
 				bool timestepLimitReached =
 					(config.timestepLimit > 0) && (totalTimesteps >= (uint64_t)config.timestepLimit);
@@ -1315,33 +1435,65 @@ void GGL::Learner::Start() {
 				if (metricSender)
 					metricSender->Send(report);
 
-				report.Display(
-					{
-						"Average Step Reward",
-						"Policy Entropy",
-						"Mean KL Divergence",
-						"Policy Loss",
-						"Critic Loss",
-						"",
-						"Policy Update Magnitude",
-						"Critic Update Magnitude",
-						"",
-						"Collection Steps/Second",
-						"Consumption Steps/Second",
-						"Overall Steps/Second",
-						"",
-						"Collection Time",
-						"-Inference Time",
-						"-Env Step Time",
-						"Consumption Time",
-						"-GAE Time",
-						"-PPO Learn Time",
-						"",
-						"Collected Timesteps",
-						"Total Timesteps",
-						"Total Iterations"
-					}
-				);
+				if (isPPO) {
+					report.Display(
+						{
+							"Average Step Reward",
+							"Policy Entropy",
+							"Mean KL Divergence",
+							"Policy Loss",
+							"Critic Loss",
+							"",
+							"Policy Update Magnitude",
+							"Critic Update Magnitude",
+							"",
+							"Collection Steps/Second",
+							"Consumption Steps/Second",
+							"Overall Steps/Second",
+							"",
+							"Collection Time",
+							"-Inference Time",
+							"-Env Step Time",
+							"Consumption Time",
+							"-GAE Time",
+							"-PPO Learn Time",
+							"",
+							"Collected Timesteps",
+							"Total Timesteps",
+							"Total Iterations"
+						}
+					);
+				} else {
+					report.Display(
+						{
+							"Average Step Reward",
+							"Policy Entropy",
+							"SAC/Entropy Coef",
+							"Policy Loss",
+							"SAC/Q1 Loss",
+							"SAC/Q2 Loss",
+							"SAC/Avg Q",
+							"",
+							"Policy Update Magnitude",
+							"Q Update Magnitude",
+							"",
+							"Collection Steps/Second",
+							"Consumption Steps/Second",
+							"Overall Steps/Second",
+							"",
+							"Collection Time",
+							"-Inference Time",
+							"-Env Step Time",
+							"Consumption Time",
+							"-SAC Learn Time",
+							"",
+							"SAC/Replay Buffer Size",
+							"Collected Timesteps",
+							"Total Timesteps",
+							"Total Iterations"
+						}
+					);
+				}
 
 				if (timestepLimitReached) {
 					RG_LOG("Learner: Timestep limit of " << config.timestepLimit << " reached, stopping training.");
@@ -1357,6 +1509,7 @@ void GGL::Learner::Start() {
 
 GGL::Learner::~Learner() {
 	delete ppo;
+	delete sac;
 	delete versionMgr;
 	delete metricSender;
 	delete renderSender;

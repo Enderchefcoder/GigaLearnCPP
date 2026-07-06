@@ -17,10 +17,55 @@
 - tmux sessions get reaped in this environment; run long builds as foreground Shell commands with big block_until_ms instead.
 - Collision meshes: synthetic box mesh can be generated for smoke tests (struct: int32 numTris, int32 numVerts, tris as 3x int32, verts as 3x float, little-endian, .cmf in collision_meshes/soccar/).
 - rlgym-ppo interop: GigaLearn model files are POLICY.lt/CRITIC.lt/SHARED_HEAD.lt (torch::save archives, loadable with torch.jit.load in Python).
+- On this VM, download.pytorch.org redirects to download-r2.pytorch.org whose TLS handshake fails; install libtorch from conda-forge instead: micromamba create -p <dir> -c conda-forge "libtorch=2.5.1=cpu_generic*" then cmake -DCMAKE_PREFIX_PATH=<dir>.
+- torch::serialize::OutputArchive with named write()/read() entries is the clean way to persist non-Model scalars (e.g. SAC's log alpha + grad step counter in one file).
+- RG_ASSERT is always active (RG_UNSAFE is never defined), so it throws in Release too; fine to rely on in tests.
+- Model names are const char*; compare via std::string (literal pointer equality isn't guaranteed across TUs).
 
 # Scratchpad
 
-## Task: Improve GigaLearnCPP (bugs, speed, docs, setup, roadmap) — branch cursor/improve-gigalearn-e1ff, PR #1
+## Task: Add SAC with discrete actions as a second learning algorithm (with configuration) — branch cursor/add-discrete-sac-7a1d
+
+### Design (decided after codebase audit)
+- Algorithm: SAC-Discrete (Christodoulou 2019). Policy = same categorical masked-softmax nets as PPO
+  (shared_head optional + policy) so InferUnit / PolicyVersionManager / skill tracker / RLBot stay compatible.
+- Twin Q nets ("q1"/"q2", obs -> numActions) + Polyak-averaged target copies (saved without optims).
+- Entropy temperature alpha: fixed or auto-tuned (log-alpha param + Adam) toward target entropy = scale * log(numActions).
+- Off-policy: new ReplayBuffer (preallocated circular tensors, uniform sampling). Transitions derived from the
+  existing collection loop's Trajectory data (states/actions/rewards/terminals + truncation next-states/masks).
+- Learner gets cfg.algorithm (PPO | SAC) + cfg.sac (SACLearnerConfig). Collection loop shared; consumption branches.
+- Shared code extracted: PolicyInference (MakePolicyModels/InferProbs/InferActions/ComputeEntropy), MetricAccum,
+  AlgoLearner interface (device + policy access) used by PolicyVersionManager.
+- SAC path skips GAE/returnStat (no reward normalization; alpha absorbs scale). standardizeObs works (stale-stats caveat documented).
+- RUNNING_STATS.json gains "algorithm" field; mismatch = clear error. Transfer learn + guiding policy stay PPO-only (guarded).
+
+### Progress
+[X] Full audit of learner/PPO/version-manager/InferUnit/tests/CI to plan integration
+[X] Refactor shared policy inference + AlgoLearner base (PPO behavior unchanged; all call sites updated)
+[X] ReplayBuffer + 6 tests (wraparound, oversized batch, sampling alignment, guards)
+[X] SACLearner + 8 tests (hand-computed Q targets, mask exclusion, Polyak math, bandit convergence,
+    auto-alpha direction, save/load roundtrip, config rejection, target init)
+[X] Learner integration (algorithm enum, ctor branch, algorithm tag in RUNNING_STATS.json,
+    SAC consumption path building transitions from trajectories incl. truncation masks, guards)
+[X] Integration test SAC phases (train, resume, both-direction algorithm-mismatch errors, InferUnit)
+[X] Docs (README, CONFIGURATION, ARCHITECTURE, GETTING_STARTED, TRAINING_GUIDE, TROUBLESHOOTING) + ExampleMain snippet
+[X] Verify: 73/73 unit tests, integration test green, 2M-step SAC smoke run on synthetic arena
+    (reward 0.47 -> 0.85, alpha auto-tuned 0.2 -> 0.63 tracking entropy target, Q values growing smoothly,
+    ~17k steps/s on 4-core CPU VM), version-manager smoke w/ skill tracker + old-version play for BOTH algos
+[X] Commit, push, PR #2 opened (draft)
+[X] Self-review round (subagent code review): extracted SACLearner::BuildTransitions (now unit-tested
+    incl. truncation ordering + rejection cases), persisted totalGradSteps in SAC_STATE.lt named archive,
+    re-froze target params after load, deterministic-Learn rejection test -> 75/75 tests, integration green
+[X] CI green on final commit: Linux Release, Linux UBSan, Windows MSVC (all 3 jobs)
+
+### STATUS: COMPLETE
+
+### VM env note (this branch)
+- pytorch.org downloads blocked on this VM (TLS to download-r2.pytorch.org fails);
+  used conda-forge libtorch instead: micromamba create -p /workspace/.libtorch-env -c conda-forge "libtorch=2.5.1=cpu_generic*"
+  then cmake -DCMAKE_PREFIX_PATH=/workspace/.libtorch-env (folder is gitignored)
+
+## Previous task: Improve GigaLearnCPP (bugs, speed, docs, setup, roadmap) — branch cursor/improve-gigalearn-e1ff, PR #1
 
 ### Status: COMPLETE (round 2 finished) — all items done, verified, committed, pushed, PR updated
 

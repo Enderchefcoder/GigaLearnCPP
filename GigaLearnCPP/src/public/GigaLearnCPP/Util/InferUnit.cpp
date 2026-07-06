@@ -1,7 +1,7 @@
 #include "InferUnit.h"
 
 #include <GigaLearnCPP/Util/Models.h>
-#include <GigaLearnCPP/PPO/PPOLearner.h>
+#include <private/GigaLearnCPP/Util/PolicyInference.h>
 #include <private/GigaLearnCPP/FrameworkTorch.h>
 
 GGL::InferUnit::InferUnit(
@@ -13,9 +13,9 @@ GGL::InferUnit::InferUnit(
 	this->models = new ModelSet();
 
 	try {
-		PPOLearner::MakeModels(
-			false, obsSize, actionParser->GetActionAmount(),
-			sharedHeadConfig, policyConfig, {},
+		PolicyInference::MakePolicyModels(
+			obsSize, actionParser->GetActionAmount(),
+			sharedHeadConfig, policyConfig,
 			useGPU ? torch::kCUDA : torch::kCPU,
 			*this->models
 		);
@@ -69,7 +69,7 @@ std::vector<RLGC::Action> GGL::InferUnit::BatchInferActions(const std::vector<RL
 		tActionMasks = tActionMasks.to(device);
 		torch::Tensor tActions, tLogProbs;
 
-		PPOLearner::InferActionsFromModels(*models, tObs, tActionMasks, deterministic, temperature, false, &tActions, &tLogProbs);
+		PolicyInference::InferActions(*models, tObs, tActionMasks, deterministic, temperature, false, &tActions, &tLogProbs);
 
 		auto actionIndices = TENSOR_TO_VEC<int>(tActions);
 		

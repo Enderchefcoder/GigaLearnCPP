@@ -17,6 +17,20 @@ Train with metrics on (wandb, or the local JSONL fallback — visualize those wi
 
 The console report shows collection/consumption speed; keep an eye on `Overall Steps/Second` when you change `numGames`, model sizes, or minibatch sizes.
 
+### SAC metrics
+
+When training with `cfg.algorithm = LearningAlgorithmType::SAC`, the PPO-specific rows (KL divergence, critic loss, clip fraction) are replaced by:
+
+| Metric | Healthy | Warning signs |
+| --- | --- | --- |
+| `SAC/Q1 Loss` / `SAC/Q2 Loss` | Settling to a stable band after warmup (they track each other closely) | Growing without bound = Q divergence: lower `qLR`, lower the replay ratio (`gradientStepsPerItr`), or check reward scales |
+| `SAC/Avg Q` | Drifting up smoothly as play improves, magnitude consistent with your reward scale and gamma | Exploding = Q divergence (see above); pinned near 0 forever = not learning |
+| `SAC/Entropy` vs `SAC/Target Entropy` | Entropy hovering near the target once alpha stabilizes | Entropy stuck far above target = policy can't commit (target too high? LR too low?); far below = raise `targetEntropyScale` |
+| `SAC/Entropy Coef` | Settling into a stable range after early movement | Racing toward 0 = entropy target too low; growing forever = policy can't reach the entropy target |
+| `SAC/Learning Active` | 1 after `learningStartTimesteps` | Stuck at 0 = `learningStartTimesteps`/`batchSize` never satisfied |
+
+`Policy Entropy` stays comparable across algorithms (both report entropy normalized by the action count).
+
 ## Stage 1: Ballchasing (0 → ~100M steps)
 
 The goal is dense, immediate feedback so random actions can bootstrap into intent:
@@ -66,4 +80,10 @@ The bot scores on an empty net and contests the ball. Now shaping rewards become
 
 ## Changing obs/actions mid-project
 
-A trained policy is welded to its obs layout and action table. To move to a new obs builder or action parser without starting over, use transfer learning (`Learner::StartTransferLearn`) to imitate the old policy into the new spaces — see [CONFIGURATION.md](CONFIGURATION.md#transfer-learning-learnerstarttransferlearn). Expect >90% action-match accuracy before switching to normal training.
+A trained policy is welded to its obs layout and action table. To move to a new obs builder or action parser without starting over, use transfer learning (`Learner::StartTransferLearn`) to imitate the old policy into the new spaces — see [CONFIGURATION.md](CONFIGURATION.md#transfer-learning-learnerstarttransferlearn). Expect >90% action-match accuracy before switching to normal training. (Transfer learning is PPO-only; for a SAC project, transfer-learn with PPO, then point a new SAC run at the resulting policy.)
+
+## Choosing between PPO and SAC
+
+- **PPO** is the battle-tested default for Rocket League: cheap per timestep, tolerant of huge throughput, and the configuration wisdom above was written for it. Start here.
+- **SAC** replays each collected timestep multiple times (`gradientStepsPerItr * batchSize / tsPerItr`), which can extract more learning per env step — attractive when collection (not the GPU) is your bottleneck. It brings its own knobs: the replay ratio, the entropy target, and `tau`. Its exploration is driven by the auto-tuned temperature instead of an entropy bonus scale.
+- The two share policies for inference, but **not** training state: a checkpoint folder belongs to one algorithm.

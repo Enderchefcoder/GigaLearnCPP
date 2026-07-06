@@ -1,6 +1,7 @@
 #include "TestFramework.h"
 
 #include <private/GigaLearnCPP/Util/Models.h>
+#include <private/GigaLearnCPP/Util/PolicyInference.h>
 #include <private/GigaLearnCPP/PPO/PPOLearner.h>
 
 using namespace GGL;
@@ -113,17 +114,16 @@ TEST_CASE(Model_HalfPrecisionTracksFullPrecision) {
 	CHECK_TRUE(torch::allclose(fullUpdated, halfUpdated, 0.1, 0.05));
 }
 
-TEST_CASE(PPOLearner_ActionMaskingWorks) {
+TEST_CASE(PolicyInference_ActionMaskingWorks) {
 	RG_NO_GRAD;
 
 	constexpr int OBS_SIZE = 4, NUM_ACTIONS = 6, NUM_STATES = 32;
 
 	ModelSet models = {};
-	PPOLearner::MakeModels(
-		false, OBS_SIZE, NUM_ACTIONS,
+	PolicyInference::MakePolicyModels(
+		OBS_SIZE, NUM_ACTIONS,
 		{}, // No shared head
 		PartialModelConfig{ .layerSizes = { 16, 16 } },
-		{},
 		torch::kCPU, models
 	);
 
@@ -134,7 +134,7 @@ TEST_CASE(PPOLearner_ActionMaskingWorks) {
 	masks.index_put_({ torch::indexing::Slice(), 0 }, 0);
 	masks.index_put_({ torch::indexing::Slice(), 3 }, 0);
 
-	auto probs = PPOLearner::InferPolicyProbsFromModels(models, obs, masks, 1, false);
+	auto probs = PolicyInference::InferProbs(models, obs, masks, 1, false);
 
 	CHECK_EQ(probs.size(0), NUM_STATES);
 	CHECK_EQ(probs.size(1), NUM_ACTIONS);
@@ -152,7 +152,7 @@ TEST_CASE(PPOLearner_ActionMaskingWorks) {
 
 	// Sampled actions must never be masked
 	torch::Tensor actions, logProbs;
-	PPOLearner::InferActionsFromModels(models, obs, masks, false, 1, false, &actions, &logProbs);
+	PolicyInference::InferActions(models, obs, masks, false, 1, false, &actions, &logProbs);
 	auto actionVec = TENSOR_TO_VEC<int>(actions);
 	for (int action : actionVec) {
 		CHECK_TRUE(action != 0 && action != 3);
@@ -168,7 +168,7 @@ TEST_CASE(PPOLearner_ActionMaskingWorks) {
 
 	// Deterministic inference must pick the highest-probability valid action
 	torch::Tensor detActions;
-	PPOLearner::InferActionsFromModels(models, obs, masks, true, 1, false, &detActions, NULL);
+	PolicyInference::InferActions(models, obs, masks, true, 1, false, &detActions, NULL);
 	auto detActionVec = TENSOR_TO_VEC<int>(detActions);
 	auto argmax = TENSOR_TO_VEC<int>(probs.argmax(-1).to(torch::kInt32));
 	for (int i = 0; i < NUM_STATES; i++)

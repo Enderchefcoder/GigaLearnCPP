@@ -102,6 +102,28 @@ Learner* learner = new Learner(EnvCreateFunc, cfg, StepCallback);
 learner->Start();
 ```
 
+### Training with SAC instead of PPO
+
+Everything above stays the same — the environment, rewards, callbacks, and checkpoints are algorithm-agnostic. To train with off-policy Soft Actor-Critic ([SAC-Discrete](https://arxiv.org/abs/1910.07207)) instead, switch the algorithm and configure `cfg.sac` instead of `cfg.ppo`:
+
+```cpp
+cfg.algorithm = LearningAlgorithmType::SAC;
+
+cfg.sac.tsPerItr = 10'000;             // Timesteps collected between learn phases
+cfg.sac.replayBufferSize = 500'000;    // Past transitions kept for learning (RAM!)
+cfg.sac.batchSize = 512;               // Replay samples per gradient step
+cfg.sac.gradientStepsPerItr = 64;      // Gradient steps per iteration
+cfg.sac.learningStartTimesteps = 20'000;
+
+cfg.sac.policy.layerSizes = { 256, 256, 256 };
+cfg.sac.qNet.layerSizes = { 256, 256, 256 };
+
+// Exploration is driven by an auto-tuned entropy temperature (alpha):
+cfg.sac.targetEntropyScale = 0.7f;     // Fraction of max entropy to target
+```
+
+Note that a checkpoint folder belongs to one algorithm — start a fresh folder when switching. See [docs/CONFIGURATION.md](CONFIGURATION.md) for every SAC option and its guidance.
+
 ## What you'll see
 
 Each iteration prints a report:

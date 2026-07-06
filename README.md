@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Enderchefcoder/GigaLearnCPP/actions/workflows/ci.yml/badge.svg)](https://github.com/Enderchefcoder/GigaLearnCPP/actions/workflows/ci.yml)
 
-**GigaLearn** is a high-performance C++ machine learning framework for training Rocket League bots with [PPO](https://en.wikipedia.org/wiki/Proximal_policy_optimization), built on [RocketSim](https://github.com/ZealanL/RocketSim).
+**GigaLearn** is a high-performance C++ machine learning framework for training Rocket League bots with [PPO](https://en.wikipedia.org/wiki/Proximal_policy_optimization) or discrete [SAC](https://arxiv.org/abs/1910.07207), built on [RocketSim](https://github.com/ZealanL/RocketSim).
 
 It is the successor to [RLGymPPO-CPP](https://github.com/ZealanL/RLGymPPO-CPP), with a redesigned environment API, a monolithic single-process inference model, and far higher throughput.
 
@@ -18,8 +18,10 @@ It is the successor to [RLGymPPO-CPP](https://github.com/ZealanL/RLGymPPO-CPP), 
 ## Feature Overview
 
 **Core learning:**
-- Fast PPO implementation with configurable epochs, batch/minibatch sizes, entropy, and clip range
-- Shared layers ("shared head") between policy and critic (enabled by default)
+- Two learning algorithms, selected with one config field (`cfg.algorithm`):
+  - **PPO** (default): fast on-policy learning with configurable epochs, batch/minibatch sizes, entropy, and clip range
+  - **SAC-Discrete**: off-policy Soft Actor-Critic with twin Q nets, replay buffer, and automatic entropy tuning
+- Shared layers ("shared head") between policy and critic (enabled by default for PPO)
 - Configurable model layer sizes, activation functions, optimizers, and layer normalization
 - Return standardization and observation standardization
 - Optional advantage normalization
@@ -81,7 +83,7 @@ For the full walkthrough (prerequisites, collision meshes, CUDA, wandb), read:
 
 ```
 ├── src/                  # Your bot: example training main + RLBot client
-├── GigaLearnCPP/         # The learning framework (PPO, models, checkpoints, metrics)
+├── GigaLearnCPP/         # The learning framework (PPO/SAC, models, checkpoints, metrics)
 │   ├── RLGymCPP/         # The environment framework (arenas, obs, rewards, state setters)
 │   │   └── RocketSim/    # Rocket League physics simulation
 │   ├── python_scripts/   # Embedded Python receivers for metrics & rendering
@@ -102,11 +104,13 @@ For the full walkthrough (prerequisites, collision meshes, CUDA, wandb), read:
 
 ## Known Limitations
 
-- **Discrete actions only** — the policy picks from an action table (see `DefaultAction`); continuous control isn't supported
+- **Discrete actions only** — the policy picks from an action table (see `DefaultAction`); continuous control isn't supported (SAC is the discrete-action variant, [SAC-Discrete](https://arxiv.org/abs/1910.07207))
 - **Feedforward policies only** — no recurrent networks; use `StackedObs` for temporal context
 - **Single machine** — collection and learning run in one process (no distributed training)
 - **Runs are not bit-reproducible** — `randomSeed` seeds the learner, but simulation randomness and thread scheduling vary run to run
 - **Team sizes are fixed per arena at creation** — mix different arena sizes in one run instead (with a padded obs builder)
+- **Transfer learning and the guiding policy are PPO-only** — to migrate obs/action spaces for a SAC run, transfer-learn with PPO first, then start SAC from the resulting policy
+- **SAC's replay buffer is not checkpointed** — a resumed SAC run refills its buffer before learning resumes (models, targets, and the entropy temperature are all saved)
 
 ## Credits
 

@@ -1,6 +1,7 @@
 #pragma once
 #include <RLGymCPP/BasicTypes/Lists.h>
 #include "PPO/PPOLearnerConfig.h"
+#include "SAC/SACLearnerConfig.h"
 #include "SkillTrackerConfig.h"
 
 namespace GGL {
@@ -8,6 +9,15 @@ namespace GGL {
 		AUTO,
 		CPU,
 		GPU_CUDA
+	};
+
+	enum class LearningAlgorithmType {
+		// Proximal Policy Optimization: on-policy, the well-tested default for Rocket League ML
+		PPO,
+
+		// Soft Actor-Critic with discrete actions (SAC-Discrete): off-policy,
+		//	learns from a replay buffer of past experience with automatic entropy tuning
+		SAC
 	};
 
 	// https://github.com/AechPro/rlgym-ppo/blob/main/rlgym_ppo/learner.py
@@ -30,7 +40,14 @@ namespace GGL {
 		// 2.0 = Run the game twice as fast as real time
 		float renderTimeScale = 1.0f; 
 
-		PPOLearnerConfig ppo = {};
+		// Which learning algorithm to train with
+		// Only the matching config (cfg.ppo or cfg.sac) is used
+		// NOTE: A checkpoint folder belongs to one algorithm; switching algorithms needs a new folder
+		//	(policies transfer between algorithms for *inference*, but optimizer/value state does not)
+		LearningAlgorithmType algorithm = LearningAlgorithmType::PPO;
+
+		PPOLearnerConfig ppo = {}; // Only used if algorithm == PPO
+		SACLearnerConfig sac = {}; // Only used if algorithm == SAC
 
 		// Stop training once this many total timesteps have been collected
 		//	(a final checkpoint is saved first, if saving is enabled)

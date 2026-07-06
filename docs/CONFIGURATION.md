@@ -1,8 +1,16 @@
 # Configuration Reference
 
-All learner behavior is controlled through `LearnerConfig` (which contains `PPOLearnerConfig` and `SkillTrackerConfig`). This documents every field with guidance.
+All learner behavior is controlled through `LearnerConfig` (which contains `PPOLearnerConfig`, `SACLearnerConfig`, and `SkillTrackerConfig`). This documents every field with guidance.
 
 ## LearnerConfig
+
+### Algorithm
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `algorithm` | `PPO` | Which learning algorithm to train with: `LearningAlgorithmType::PPO` or `LearningAlgorithmType::SAC`. Only the matching sub-config (`cfg.ppo` or `cfg.sac`) is used. A checkpoint folder belongs to one algorithm — switching algorithms needs a new folder (trained policies still work everywhere for *inference* via `InferUnit`, regardless of the algorithm that produced them). |
+
+PPO is the well-tested default for Rocket League ML. SAC (Soft Actor-Critic with discrete actions, [arXiv:1910.07207](https://arxiv.org/abs/1910.07207)) is off-policy: it keeps a large replay buffer of past transitions and learns from random samples of it, which reuses experience more aggressively and can be more sample-efficient, at the cost of more compute per collected timestep and different tuning behavior.
 
 ### Simulation
 
@@ -36,9 +44,9 @@ All learner behavior is controlled through `LearnerConfig` (which contains `PPOL
 
 | Field | Default | Description |
 | --- | --- | --- |
-| `standardizeReturns` | true | Track return statistics and scale rewards by the return STD for the critic. Don't disable unless you know what you're doing. |
+| `standardizeReturns` | true | Track return statistics and scale rewards by the return STD for the critic. Don't disable unless you know what you're doing. **PPO only** (SAC learns on raw rewards; its auto-tuned entropy temperature absorbs scale differences). |
 | `maxReturnSamples` | 150 | Return samples per iteration for the running STD. |
-| `standardizeObs` | false | Standardize observations with running mean/STD per obs index. Usually unnecessary if your obs builder outputs sane ranges. |
+| `standardizeObs` | false | Standardize observations with running mean/STD per obs index. Usually unnecessary if your obs builder outputs sane ranges. With SAC, note that replayed transitions keep the standardization from when they were collected (slightly stale for old replay data). |
 | `minObsSTD` | 0.1 | Lower clamp for obs STD (prevents huge multipliers on near-constant obs). |
 | `maxObsMeanRange` | 3 | Clamp for obs mean correction. |
 | `maxObsSamples` | 100 | Max obs rows sampled per step for the running stats. |
@@ -123,6 +131,56 @@ The shared head feeds both the policy and critic; its learning rate is the minim
 | `guidingPolicyPath` | `"guiding_policy/"` | Folder containing the guiding policy model(s). |
 | `guidingStrength` | 0.03 | Scale of the guiding loss. |
 
+## SACLearnerConfig (`cfg.sac`)
+
+Used when `cfg.algorithm == LearningAlgorithmType::SAC`. SAC-Discrete keeps the same masked-softmax policy structure as PPO, but estimates values with twin Q nets (one Q value per action) and learns off-policy from a replay buffer.
+
+### Iteration sizing & replay
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `tsPerItr` | 10,000 | Timesteps collected per iteration (between learn phases). |
+| `replayBufferSize` | 500,000 | Max transitions kept (oldest overwritten). Memory is roughly `replayBufferSize * (2*obsSize*4 + 2*numActions + 16)` bytes — about 500 MB at the defaults with obs size ~100. The buffer lives in RAM (not VRAM) and is **not** saved in checkpoints (a resumed run refills it before learning resumes). |
+| `batchSize` | 512 | Replay transitions sampled per gradient step. |
+| `gradientStepsPerItr` | 64 | Gradient updates per iteration. The replay ratio (how often each collected timestep is learned from, on average) is `gradientStepsPerItr * batchSize / tsPerItr` — ~3.3 at the defaults. Raising it learns more per timestep but costs compute and can destabilize training. |
+| `learningStartTimesteps` | 20,000 | No learning until this many timesteps exist (gives the buffer diverse data first). `SAC/Learning Active` reports whether learning has started. |
+| `maxEpisodeDuration` | 120 | Max episode length in seconds before truncation (same as PPO's). |
+
+### Core SAC
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `policyLR` / `qLR` | 3e-4 | Learning rates of the policy and the (twin) Q nets. |
+| `gamma` | 0.99 | Reward discount on the Q-learning target (SAC does not use GAE). |
+| `tau` | 0.005 | Polyak averaging coefficient for the target Q nets: `target = tau * live + (1 - tau) * target` each update. |
+| `targetUpdateInterval` | 1 | Gradient steps between target net updates. |
+| `gradClipNorm` | 0 | Max gradient norm per model per gradient step. 0 disables (SAC usually doesn't need it). |
+| `policyTemperature` | 1 | Softmax temperature of the policy distribution. |
+
+### Entropy temperature (alpha)
+
+Alpha scales the entropy bonus: bigger alpha = more exploration. By default it is auto-tuned so the policy's entropy tracks a target.
+
+| Field | Default | Description |
+| --- | --- | --- |
+| `autoEntCoef` | true | Auto-tune alpha toward `targetEntropy = targetEntropyScale * log(numActions)`. |
+| `entCoef` | 0.2 | Fixed alpha if `autoEntCoef` is off, otherwise the initial alpha. |
+| `entCoefLR` | 3e-4 | Learning rate of the alpha auto-tuner. |
+| `targetEntropyScale` | 0.7 | Fraction of the maximum possible entropy (`log(numActions)`, over the *full* action table) to target. The SAC-Discrete paper used 0.98, which tends to over-explore; lower it if your bot stays too random, raise it if the policy collapses to a few actions. Note that action masking lowers the achievable entropy in masked states, so with heavily-masked action parsers, prefer lower scales. Watch `SAC/Entropy` vs `SAC/Target Entropy` and `SAC/Entropy Coef` in the metrics. |
+
+### Models (`policy`, `qNet`, `sharedHead`)
+
+Same fields as the PPO model configs (`layerSizes`, `activationType`, `optimType`, `addLayerNorm`). Both Q nets use `qNet`'s config and output one Q value per action. `sharedHead` is **optional and feeds only the policy** — a trunk shared between the actor and critics is a common source of SAC instability, so the Q nets always read the raw obs. The default has no shared head (`sharedHead.layerSizes = {}`).
+
+### Inference
+
+`deterministic` and `useHalfPrecision` behave exactly like their PPO counterparts (deterministic mode is inference/render-only and throws if used for training).
+
+### Not supported with SAC (yet)
+
+- **Transfer learning** (`StartTransferLearn`) and the **guiding policy** are PPO-only. To migrate obs/action spaces, transfer-learn with PPO first, then start a SAC run from the resulting policy.
+- `standardizeReturns` has no effect (SAC learns on raw rewards).
+
 ## SkillTrackerConfig (`cfg.skillTracker`)
 
 Plays rating matches between the current policy and saved versions on separate arenas, maintaining an ELO-style rating per game mode (logged as `Rating/<mode>`).
@@ -152,9 +210,11 @@ void StepCallback(Learner* learner, const std::vector<GameState>& states, Report
 
 Available: `SetLearningRates(policyLR, criticLR)`, `SetEntropyScale(scale)`, `GetPolicyLR()`, `GetCriticLR()`, `GetEntropyScale()`. Changes take effect from the next learn phase.
 
+With SAC, the same functions map naturally: `SetLearningRates(policyLR, qLR)` sets the policy and Q-net rates, `GetEntropyScale()` returns the current (possibly auto-tuned) alpha, and `SetEntropyScale(alpha)` sets a fixed alpha (only allowed when `autoEntCoef` is off — it throws otherwise; adjust `targetEntropyScale` instead).
+
 ## Transfer learning (`Learner::StartTransferLearn`)
 
-Instead of `Start()`, `StartTransferLearn(TransferLearnConfig)` trains the current (new) policy to imitate an old policy that may use a **different obs builder and/or action parser**:
+**PPO only.** Instead of `Start()`, `StartTransferLearn(TransferLearnConfig)` trains the current (new) policy to imitate an old policy that may use a **different obs builder and/or action parser**:
 
 | Field | Default | Description |
 | --- | --- | --- |
