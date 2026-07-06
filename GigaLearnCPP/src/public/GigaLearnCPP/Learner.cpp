@@ -360,6 +360,22 @@ void GGL::Learner::Load() {
 	if (config.checkpointFolder.empty())
 		RG_ERR_CLOSE("Learner::Load(): Cannot load because config.checkpointLoadFolder is not set");
 
+	// Clean up incomplete checkpoint saves left behind by a hard kill mid-save
+	//	(saves write to a "~incomplete" folder that is renamed into place once finished,
+	//	so these leftovers are always safe to delete)
+	if (std::filesystem::is_directory(config.checkpointFolder)) {
+		for (auto& entry : std::filesystem::directory_iterator(config.checkpointFolder)) {
+			if (!entry.is_directory())
+				continue;
+
+			std::string name = entry.path().filename().string();
+			if (name.size() > 11 && name.substr(name.size() - 11) == "~incomplete") {
+				RG_LOG("Removing incomplete checkpoint save: " << entry.path());
+				std::filesystem::remove_all(entry.path());
+			}
+		}
+	}
+
 	RG_LOG("Loading most recent checkpoint in " << config.checkpointFolder << "...");
 
 	int64_t highest = -1;
