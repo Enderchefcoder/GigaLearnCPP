@@ -24,6 +24,15 @@
 
 ### Status: COMPLETE (round 2 finished) — all items done, verified, committed, pushed, PR updated
 
+### Round 10 additions
+[X] Discovered + fixed: the sealed test box made scoring physically impossible (all previous runs never scored) -> tools/make_test_mesh.py generates a synthetic arena WITH functional goal boxes; verified goals register
+[X] 4.5-HOUR LEARNING VALIDATION RUN (121M steps, 4792 iters, 0 warnings):
+    - Avg step reward 0.66 -> 1.70 (clear inflection ~25M)
+    - Skill rating (ELO vs old selves): 5 -> ~64, steady climb = real intelligence progression
+    - Episode length 4136 -> 429 steps (bot learned to SCORE; episodes end by goals not timeouts)
+    - Entropy healthy (0.76 -> 0.55 -> 0.65 partial recovery, no collapse); KL stable
+[X] Docs link check: all first-party links resolve (only vendored thread_pool README has stale upstream links)
+
 ### Round 9 additions
 [X] 2.5-hour CHAOS SOAK: 60 run/kill/restart cycles rotating SIGTERM/SIGINT/SIGKILL - 0 failures, 0 corrupt checkpoints, 131.6M steps across kills; mid-save SIGKILL handled by atomic-save design
 [X] Startup cleanup of ~incomplete checkpoint temp folders (the one artifact hard kills leave)
