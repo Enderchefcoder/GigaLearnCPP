@@ -42,6 +42,14 @@ namespace GGL {
 		// Set empty to disable saving
 		std::filesystem::path checkpointFolder = "checkpoints"; 
 
+		// Which checkpoint (timestep subfolder) to load at startup
+		// -1 loads the newest checkpoint (default)
+		// Set to a specific checkpoint's timestep number to roll back after a bad
+		//	training period. NOTE: Delete the newer checkpoint subfolders (and newer
+		//	policy versions, if using them) afterwards, otherwise auto-cleanup and
+		//	version loading will misbehave around them (a warning will tell you).
+		int64_t checkpointToLoad = -1;
+
 		// Save every timestep
 		// Set to zero to just use timestepsPerIteration
 		int64_t tsPerSave = 1'000'000;

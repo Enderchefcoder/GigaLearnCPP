@@ -211,6 +211,33 @@ int main(int argc, char* argv[]) {
 		delete learner;
 	}
 
+	{ // Phase 3a: roll back to a specific (older) checkpoint via checkpointToLoad
+		auto savedTimesteps = Utils::FindNumberedDirs(checkpointFolder);
+		INTEG_CHECK(savedTimesteps.size() >= 2); // Phases 1+2 saved multiple checkpoints
+
+		int64_t oldest = *savedTimesteps.begin();
+		int64_t newest = *savedTimesteps.rbegin();
+		INTEG_CHECK(oldest < newest);
+
+		auto cfg = MakeTestConfig(checkpointFolder);
+		cfg.checkpointToLoad = oldest;
+
+		Learner* learner = new Learner(EnvCreateFunc, cfg);
+		INTEG_CHECK(learner->totalTimesteps == (uint64_t)oldest);
+		delete learner;
+
+		// Requesting a checkpoint that doesn't exist must fail clearly
+		cfg.checkpointToLoad = 12345678;
+		bool threw = false;
+		try {
+			Learner learner2 = Learner(EnvCreateFunc, cfg);
+		} catch (std::exception& e) {
+			threw = true;
+			INTEG_CHECK(std::string(e.what()).find("checkpointToLoad") != std::string::npos);
+		}
+		INTEG_CHECK(threw);
+	}
+
 	{ // Phase 3: loading the checkpoint with a changed obs size must fail with a clear error
 		auto cfg = MakeTestConfig(checkpointFolder);
 

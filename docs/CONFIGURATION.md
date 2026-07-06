@@ -28,6 +28,7 @@ All learner behavior is controlled through `LearnerConfig` (which contains `PPOL
 | Field | Default | Description |
 | --- | --- | --- |
 | `checkpointFolder` | `"checkpoints"` | Checkpoints save into timestep-numbered subfolders. Empty disables saving. The newest checkpoint is auto-loaded at startup. |
+| `checkpointToLoad` | -1 | Load a specific checkpoint (by its timestep number) instead of the newest — for rolling back after a bad training period. Delete the newer checkpoint subfolders (and newer policy versions) when rolling back; a warning reminds you. |
 | `tsPerSave` | 1,000,000 | Timesteps between auto-saves. 0 = save every iteration. |
 | `checkpointsToKeep` | 8 | Older checkpoints are deleted beyond this count. -1 keeps everything. |
 

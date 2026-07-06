@@ -270,7 +270,18 @@ void GGL::Learner::LoadStats(std::filesystem::path path) {
 	if (!fIn.good())
 		RG_ERR_CLOSE(ERROR_PREFIX << "Can't open file at " << path);
 
-	json j = json::parse(fIn);
+	json j;
+	try {
+		j = json::parse(fIn);
+	} catch (std::exception& e) {
+		RG_ERR_CLOSE(
+			ERROR_PREFIX << "The stats file at " << path << " is corrupt (invalid JSON).\n" <<
+			"This checkpoint was probably interrupted mid-save by an old version of this library; " <<
+			"delete that checkpoint's folder to fall back to an older checkpoint.\n" <<
+			"Parse error: " << e.what()
+		);
+	}
+
 	totalTimesteps = j["total_timesteps"];
 	totalIterations = j["total_iterations"];
 
@@ -376,15 +387,41 @@ void GGL::Learner::Load() {
 		}
 	}
 
-	RG_LOG("Loading most recent checkpoint in " << config.checkpointFolder << "...");
-
-	int64_t highest = -1;
 	std::set<int64_t> allSavedTimesteps = Utils::FindNumberedDirs(config.checkpointFolder);
-	for (int64_t timesteps : allSavedTimesteps)
-		highest = RS_MAX(timesteps, highest);
 
-	if (highest != -1) {
-		std::filesystem::path loadFolder = config.checkpointFolder / std::to_string(highest);
+	int64_t toLoad = -1;
+	if (config.checkpointToLoad >= 0) {
+		// Load a specific checkpoint (e.g. rolling back after a bad training period)
+		RG_LOG("Loading checkpoint " << config.checkpointToLoad << " from " << config.checkpointFolder << "...");
+
+		if (!allSavedTimesteps.contains(config.checkpointToLoad))
+			RG_ERR_CLOSE(
+				"Learner::Load(): config.checkpointToLoad is " << config.checkpointToLoad << ", " <<
+				"but no checkpoint subfolder with that name exists in " << config.checkpointFolder
+			);
+
+		toLoad = config.checkpointToLoad;
+
+		int numNewer = 0;
+		for (int64_t timesteps : allSavedTimesteps)
+			numNewer += (timesteps > toLoad);
+
+		if (numNewer > 0)
+			RG_LOG(
+				"WARNING: " << numNewer << " newer checkpoint(s) exist beyond " << toLoad << ".\n" <<
+				"Delete them (and any newer policy versions) if you are rolling back, " <<
+				"otherwise checkpoint auto-cleanup and version loading will misbehave around them."
+			);
+	} else {
+		// Load the newest checkpoint
+		RG_LOG("Loading most recent checkpoint in " << config.checkpointFolder << "...");
+
+		for (int64_t timesteps : allSavedTimesteps)
+			toLoad = RS_MAX(timesteps, toLoad);
+	}
+
+	if (toLoad != -1) {
+		std::filesystem::path loadFolder = config.checkpointFolder / std::to_string(toLoad);
 		RG_LOG(" > Loading checkpoint " << loadFolder << "...");
 		LoadStats(loadFolder / STATS_FILE_NAME);
 		ppo->LoadFrom(loadFolder);

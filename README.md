@@ -98,7 +98,15 @@ For the full walkthrough (prerequisites, collision meshes, CUDA, wandb), read:
 - A C++20 compiler (MSVC 2019+, GCC 11+, or Clang 14+)
 - [libtorch](https://pytorch.org/get-started/locally/) (CUDA build strongly recommended for training)
 - Python 3.8+ (embedded for metrics/rendering; `wandb` optional)
-- Rocket League arena collision meshes, dumped with [RLArenaCollisionDumper](https://github.com/ZealanL/RLArenaCollisionDumper)
+- Rocket League arena collision meshes, dumped with [RLArenaCollisionDumper](https://github.com/ZealanL/RLArenaCollisionDumper) (or generate an approximate test arena with `tools/make_test_mesh.py` to try things out)
+
+## Known Limitations
+
+- **Discrete actions only** — the policy picks from an action table (see `DefaultAction`); continuous control isn't supported
+- **Feedforward policies only** — no recurrent networks; use `StackedObs` for temporal context
+- **Single machine** — collection and learning run in one process (no distributed training)
+- **Runs are not bit-reproducible** — `randomSeed` seeds the learner, but simulation randomness and thread scheduling vary run to run
+- **Team sizes are fixed per arena at creation** — mix different arena sizes in one run instead (with a padded obs builder)
 
 ## Credits
 
