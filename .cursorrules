@@ -24,6 +24,10 @@
 
 ### Status: COMPLETE (round 2 finished) — all items done, verified, committed, pushed, PR updated
 
+### Round 12 additions
+[X] TODO audit: fixed the 2 real ones (transfer-learn old-obs building now parallel per arena; obs-stat sampling excludes old-version players). Remaining TODOs are cosmetic/documented-limitations.
+[X] FRESH-CLONE VALIDATION: pristine clone of the branch -> documented quick start exactly (setup script, cmake, build, 59/59 tests, integration test, synthetic mesh, first training run w/ checkpoints+metrics) -> zero manual intervention needed
+
 ### Round 11 additions
 [X] cfg.checkpointToLoad: rollback to a specific checkpoint (+ rollback warnings, integration test phase 3a)
 [X] Corrupt RUNNING_STATS.json -> clear delete-this-folder error instead of raw JSON exception
