@@ -34,7 +34,7 @@ Same cause as above — the meshes folder is missing or in the wrong place (it m
 The `python_scripts` folder must be next to the executable (the build copies it automatically). If you run from another directory, it's also searched via the working directory.
 
 **`[metric_receiver] Failed to import wandb`**
-Not fatal — metrics fall back to JSONL files in `metrics/`. To use wandb, `pip install wandb` into the Python that CMake found (printed during configure), or set `cfg.sendMetrics = false` to silence metrics entirely.
+Not fatal — metrics fall back to JSONL files in `metrics/`. To use wandb, `pip install wandb` into the Python that CMake found (printed during configure), or set `cfg.sendMetrics = false` to silence metrics entirely. The JSONL logs can be visualized with `python tools/plot_metrics.py metrics/<run>.jsonl`.
 
 **`Can't use CUDA GPU because ...`**
 Your libtorch is CPU-only, or CUDA/driver versions don't match the libtorch build. Check `nvidia-smi`, and download the libtorch build matching your CUDA version.

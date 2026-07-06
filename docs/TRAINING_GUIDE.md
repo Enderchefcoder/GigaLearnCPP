@@ -4,7 +4,7 @@ A practical playbook for taking a bot from random movement to competent play. Th
 
 ## Before you start: know your metrics
 
-Train with metrics on (wandb or the local JSONL fallback) and watch these:
+Train with metrics on (wandb, or the local JSONL fallback — visualize those with `python tools/plot_metrics.py metrics/<run>.jsonl`) and watch these:
 
 | Metric | Healthy | Warning signs |
 | --- | --- | --- |

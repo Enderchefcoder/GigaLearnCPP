@@ -88,7 +88,8 @@ For the full walkthrough (prerequisites, collision meshes, CUDA, wandb), read:
 │   └── tests/            # Unit tests (enable with -DGGL_BUILD_TESTS=ON)
 ├── RLBotCPP/             # RLBot framework bindings for playing in-game
 ├── rlbot/                # RLBot bot folder (configs + Python agent)
-└── tools/                # Checkpoint converter for rlgym-ppo interop
+├── scripts/              # Setup helpers (libtorch download)
+└── tools/                # Checkpoint converter, metrics plotter
 ```
 
 ## Requirements
