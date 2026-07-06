@@ -17,6 +17,10 @@
 - tmux sessions get reaped in this environment; run long builds as foreground Shell commands with big block_until_ms instead.
 - Collision meshes: synthetic box mesh can be generated for smoke tests (struct: int32 numTris, int32 numVerts, tris as 3x int32, verts as 3x float, little-endian, .cmf in collision_meshes/soccar/).
 - rlgym-ppo interop: GigaLearn model files are POLICY.lt/CRITIC.lt/SHARED_HEAD.lt (torch::save archives, loadable with torch.jit.load in Python).
+- On this VM, download.pytorch.org redirects to download-r2.pytorch.org whose TLS handshake fails; install libtorch from conda-forge instead: micromamba create -p <dir> -c conda-forge "libtorch=2.5.1=cpu_generic*" then cmake -DCMAKE_PREFIX_PATH=<dir>.
+- torch::serialize::OutputArchive with named write()/read() entries is the clean way to persist non-Model scalars (e.g. SAC's log alpha + grad step counter in one file).
+- RG_ASSERT is always active (RG_UNSAFE is never defined), so it throws in Release too; fine to rely on in tests.
+- Model names are const char*; compare via std::string (literal pointer equality isn't guaranteed across TUs).
 
 # Scratchpad
 
@@ -48,7 +52,13 @@
 [X] Verify: 73/73 unit tests, integration test green, 2M-step SAC smoke run on synthetic arena
     (reward 0.47 -> 0.85, alpha auto-tuned 0.2 -> 0.63 tracking entropy target, Q values growing smoothly,
     ~17k steps/s on 4-core CPU VM), version-manager smoke w/ skill tracker + old-version play for BOTH algos
-[ ] Commit docs round, push, PR
+[X] Commit, push, PR #2 opened (draft)
+[X] Self-review round (subagent code review): extracted SACLearner::BuildTransitions (now unit-tested
+    incl. truncation ordering + rejection cases), persisted totalGradSteps in SAC_STATE.lt named archive,
+    re-froze target params after load, deterministic-Learn rejection test -> 75/75 tests, integration green
+[X] CI green on final commit: Linux Release, Linux UBSan, Windows MSVC (all 3 jobs)
+
+### STATUS: COMPLETE
 
 ### VM env note (this branch)
 - pytorch.org downloads blocked on this VM (TLS to download-r2.pytorch.org fails);
