@@ -1,8 +1,8 @@
 // End-to-end integration test:
 //	- Initializes RocketSim with a synthetic in-memory arena mesh (no game files needed)
-//	- Trains a tiny model for a few iterations on CPU
-//	- Verifies checkpoints save, load, and resume
-//	- Verifies InferUnit can load the trained policy and produce valid actions
+//	- Trains a tiny model for a few iterations on CPU (with PPO, then with SAC)
+//	- Verifies checkpoints save, load, and resume (and refuse to load across algorithms)
+//	- Verifies InferUnit can load the trained policies and produce valid actions
 // Exits 0 on success, non-zero on failure.
 
 #include <GigaLearnCPP/Learner.h>
@@ -149,6 +149,32 @@ static LearnerConfig MakeTestConfig(std::filesystem::path checkpointFolder) {
 	cfg.ppo.sharedHead.layerSizes = { 32 };
 	cfg.ppo.policy.layerSizes = { 32 };
 	cfg.ppo.critic.layerSizes = { 32 };
+
+	cfg.checkpointFolder = checkpointFolder;
+	cfg.tsPerSave = 1000;
+	cfg.timestepLimit = 2000;
+
+	cfg.sendMetrics = false; // No wandb/python receiver needed
+	cfg.addRewardsToMetrics = true;
+
+	return cfg;
+}
+
+static LearnerConfig MakeTestSACConfig(std::filesystem::path checkpointFolder) {
+	LearnerConfig cfg = {};
+	cfg.algorithm = LearningAlgorithmType::SAC;
+	cfg.deviceType = LearnerDeviceType::CPU;
+	cfg.numGames = 4;
+	cfg.randomSeed = 123;
+
+	cfg.sac.tsPerItr = 500;
+	cfg.sac.batchSize = 128;
+	cfg.sac.gradientStepsPerItr = 4;
+	cfg.sac.replayBufferSize = 4000;
+	cfg.sac.learningStartTimesteps = 500; // Learning kicks in from the first iteration
+
+	cfg.sac.policy.layerSizes = { 32 };
+	cfg.sac.qNet.layerSizes = { 32 };
 
 	cfg.checkpointFolder = checkpointFolder;
 	cfg.tsPerSave = 1000;
@@ -348,8 +374,114 @@ int main(int argc, char* argv[]) {
 		delete learner;
 	}
 
+	auto sacCheckpointFolder = std::filesystem::temp_directory_path() / "ggl_integration_sac";
+	std::filesystem::remove_all(sacCheckpointFolder);
+
+	uint64_t sacTimestepsAfterFirstRun = 0;
+
+	{ // Phase 6: train with SAC from scratch until the timestep limit
+		Learner* learner = new Learner(EnvCreateFunc, MakeTestSACConfig(sacCheckpointFolder));
+		learner->Start(); // Returns at cfg.timestepLimit
+
+		sacTimestepsAfterFirstRun = learner->totalTimesteps;
+		INTEG_CHECK(sacTimestepsAfterFirstRun >= 2000);
+		INTEG_CHECK(learner->totalIterations >= 2);
+
+		delete learner;
+	}
+
+	// A SAC checkpoint must exist on disk
+	INTEG_CHECK(std::filesystem::is_directory(sacCheckpointFolder));
+	INTEG_CHECK(!Utils::FindNumberedDirs(sacCheckpointFolder).empty());
+
+	{ // Phase 6b: resume SAC from the checkpoint
+		auto cfg = MakeTestSACConfig(sacCheckpointFolder);
+		cfg.timestepLimit = sacTimestepsAfterFirstRun + 1000;
+
+		Learner* learner = new Learner(EnvCreateFunc, cfg);
+
+		// The checkpoint must have loaded (timesteps carried over)
+		INTEG_CHECK(learner->totalTimesteps > 0);
+		INTEG_CHECK(learner->totalTimesteps <= sacTimestepsAfterFirstRun);
+
+		learner->Start();
+		INTEG_CHECK(learner->totalTimesteps >= sacTimestepsAfterFirstRun + 1000);
+
+		delete learner;
+	}
+
+	{ // Phase 6c: checkpoints must refuse to load across algorithms
+		// SAC checkpoint with a PPO learner...
+		auto ppoCfg = MakeTestConfig(sacCheckpointFolder);
+		bool threw = false;
+		try {
+			Learner learner = Learner(EnvCreateFunc, ppoCfg);
+		} catch (std::exception& e) {
+			threw = true;
+			INTEG_CHECK(std::string(e.what()).find("algorithm") != std::string::npos);
+		}
+		INTEG_CHECK(threw);
+
+		// ...and a PPO checkpoint with a SAC learner
+		auto sacCfg = MakeTestSACConfig(checkpointFolder);
+		threw = false;
+		try {
+			Learner learner = Learner(EnvCreateFunc, sacCfg);
+		} catch (std::exception& e) {
+			threw = true;
+			INTEG_CHECK(std::string(e.what()).find("algorithm") != std::string::npos);
+		}
+		INTEG_CHECK(threw);
+	}
+
+	{ // Phase 6d: InferUnit is algorithm-agnostic; it must load the trained SAC policy
+		int64_t newestCheckpoint = *Utils::FindNumberedDirs(sacCheckpointFolder).rbegin();
+
+		auto obsBuilder = new DefaultObsPadded(MAX_PLAYERS_PER_TEAM);
+		auto actionParser = new DefaultAction();
+
+		GameState testState = {};
+		testState.players.resize(2);
+		for (int i = 0; i < 2; i++) {
+			testState.players[i].index = i;
+			testState.players[i].carId = i + 1;
+			testState.players[i].team = (i == 0) ? Team::BLUE : Team::ORANGE;
+			testState.players[i].pos = Vec(0, -1000 + 2000 * i, 17);
+			testState.players[i].rotMat = RotMat::GetIdentity();
+		}
+		testState.ball.pos = Vec(0, 0, 93);
+		int obsSize = obsBuilder->BuildObs(testState.players[0], testState).size();
+
+		PartialModelConfig policyConfig = {};
+		policyConfig.layerSizes = { 32 };
+
+		InferUnit* inferUnit = new InferUnit(
+			obsBuilder, obsSize, actionParser,
+			{}, policyConfig, // (The SAC test config has no shared head)
+			sacCheckpointFolder / std::to_string(newestCheckpoint), false
+		);
+
+		for (bool deterministic : { true, false }) {
+			Action action = inferUnit->InferAction(testState.players[0], testState, deterministic);
+
+			bool matchesAny = false;
+			for (auto& parserAction : ((DefaultAction*)actionParser)->actions) {
+				bool matches = true;
+				for (int i = 0; i < Action::ELEM_AMOUNT; i++)
+					matches &= (action[i] == parserAction[i]);
+				matchesAny |= matches;
+			}
+			INTEG_CHECK(matchesAny);
+		}
+
+		delete inferUnit;
+		delete obsBuilder;
+		delete actionParser;
+	}
+
 	std::filesystem::remove_all(checkpointFolder);
 	std::filesystem::remove_all(transferCheckpointFolder);
+	std::filesystem::remove_all(sacCheckpointFolder);
 
 	std::cout << std::string(40, '=') << std::endl;
 	std::cout << "INTEGRATION TEST PASSED" << std::endl;

@@ -63,3 +63,6 @@ libtorch
 # Local metric logs (fallback when wandb isn't installed)
 /metrics
 metrics/*.jsonl
+
+# Local libtorch conda env (created by cloud-agent builds)
+/.libtorch-env

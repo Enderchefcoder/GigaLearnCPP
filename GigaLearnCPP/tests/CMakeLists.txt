@@ -14,8 +14,11 @@ set(GGL_TESTED_SRC
 	"${CMAKE_CURRENT_SOURCE_DIR}/../src/private/GigaLearnCPP/PPO/GAE.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../src/private/GigaLearnCPP/PPO/ExperienceBuffer.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../src/private/GigaLearnCPP/PPO/PPOLearner.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/../src/private/GigaLearnCPP/SAC/ReplayBuffer.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/../src/private/GigaLearnCPP/SAC/SACLearner.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../src/private/GigaLearnCPP/Util/Models.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../src/private/GigaLearnCPP/Util/MagSGD.cpp"
+	"${CMAKE_CURRENT_SOURCE_DIR}/../src/private/GigaLearnCPP/Util/PolicyInference.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../src/public/GigaLearnCPP/Util/Utils.cpp"
 	"${CMAKE_CURRENT_SOURCE_DIR}/../src/public/GigaLearnCPP/Util/Report.cpp"
 )

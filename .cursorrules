@@ -20,7 +20,33 @@
 
 # Scratchpad
 
-## Task: Improve GigaLearnCPP (bugs, speed, docs, setup, roadmap) — branch cursor/improve-gigalearn-e1ff, PR #1
+## Task: Add SAC with discrete actions as a second learning algorithm (with configuration) — branch cursor/add-discrete-sac-7a1d
+
+### Design (decided after codebase audit)
+- Algorithm: SAC-Discrete (Christodoulou 2019). Policy = same categorical masked-softmax nets as PPO
+  (shared_head optional + policy) so InferUnit / PolicyVersionManager / skill tracker / RLBot stay compatible.
+- Twin Q nets ("q1"/"q2", obs -> numActions) + Polyak-averaged target copies (saved without optims).
+- Entropy temperature alpha: fixed or auto-tuned (log-alpha param + Adam) toward target entropy = scale * log(numActions).
+- Off-policy: new ReplayBuffer (preallocated circular tensors, uniform sampling). Transitions derived from the
+  existing collection loop's Trajectory data (states/actions/rewards/terminals + truncation next-states/masks).
+- Learner gets cfg.algorithm (PPO | SAC) + cfg.sac (SACLearnerConfig). Collection loop shared; consumption branches.
+- Shared code extracted: PolicyInference (MakePolicyModels/InferProbs/InferActions/ComputeEntropy), MetricAccum,
+  AlgoLearner interface (device + policy access) used by PolicyVersionManager.
+- SAC path skips GAE/returnStat (no reward normalization; alpha absorbs scale). standardizeObs works (stale-stats caveat documented).
+- RUNNING_STATS.json gains "algorithm" field; mismatch = clear error. Transfer learn + guiding policy stay PPO-only (guarded).
+
+### Progress
+[X] Full audit of learner/PPO/version-manager/InferUnit/tests/CI to plan integration
+[ ] Refactor shared policy inference + AlgoLearner base
+[ ] ReplayBuffer + tests
+[ ] SACLearner + tests
+[ ] Learner integration (config, save/load, Start() branch)
+[ ] Integration test SAC phase
+[ ] Docs + example
+[ ] Verify: build, 59+ unit tests, integration, SAC smoke training run
+[ ] Commit, push, PR
+
+## Previous task: Improve GigaLearnCPP (bugs, speed, docs, setup, roadmap) — branch cursor/improve-gigalearn-e1ff, PR #1
 
 ### Status: COMPLETE (round 2 finished) — all items done, verified, committed, pushed, PR updated
 

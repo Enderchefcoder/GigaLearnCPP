@@ -17,7 +17,12 @@ namespace GGL {
 
 		RLGC::EnvSet* envSet;
 
+		// The active algorithm (see config.algorithm); the non-active one is NULL
 		class PPOLearner* ppo;
+		class SACLearner* sac;
+		// The active learner, through the algorithm-agnostic interface
+		class AlgoLearner* algo;
+
 		class PolicyVersionManager* versionMgr;
 
 		RLGC::EnvCreateFn envCreateFn;
@@ -44,16 +49,21 @@ namespace GGL {
 		Learner(RLGC::EnvCreateFn envCreateFunc, LearnerConfig config, StepCallbackFn stepCallback = NULL);
 		void Start();
 
+		// NOTE: Transfer learning is currently only supported with the PPO algorithm
 		void StartTransferLearn(const TransferLearnConfig& transferLearnConfig);
 
 		// Runtime training-parameter adjustment (e.g. for schedules driven from the step callback)
 		// Takes effect from the next learn phase onwards
+		// For SAC, the second learning rate is the Q-net learning rate (SAC has no critic)
 		void SetLearningRates(float policyLR, float criticLR);
+		// For PPO, this is the normalized-entropy bonus scale (cfg.ppo.entropyScale)
+		// For SAC, this sets the entropy temperature alpha; only allowed when
+		//	cfg.sac.autoEntCoef is off (alpha is auto-tuned otherwise)
 		void SetEntropyScale(float entropyScale);
 
 		float GetPolicyLR() const;
-		float GetCriticLR() const;
-		float GetEntropyScale() const;
+		float GetCriticLR() const; // For SAC, returns the Q-net learning rate
+		float GetEntropyScale() const; // For SAC, returns the current (possibly auto-tuned) alpha
 
 		void StartQuitKeyThread(bool& quitPressed, std::thread& outThread);
 

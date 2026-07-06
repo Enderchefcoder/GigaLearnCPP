@@ -96,9 +96,9 @@ namespace GGL {
 
 		void SortVersions();
 
-		void RunSkillMatches(struct PPOLearner* ppo, Report& report);
+		void RunSkillMatches(class AlgoLearner* algo, Report& report);
 
-		void OnIteration(struct PPOLearner* ppo, Report& report, int64_t totalTimesteps, int64_t prevTotalTimesteps);
+		void OnIteration(class AlgoLearner* algo, Report& report, int64_t totalTimesteps, int64_t prevTotalTimesteps);
 
 		void AddRunningStatsToJSON(nlohmann::json& json);
 		void LoadRunningStatsFromJSON(const nlohmann::json& json);

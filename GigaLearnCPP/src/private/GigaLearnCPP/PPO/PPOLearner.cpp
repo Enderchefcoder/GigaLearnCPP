@@ -1,5 +1,8 @@
 #include "PPOLearner.h"
 
+#include "../Util/PolicyInference.h"
+#include "../Util/MetricAccum.h"
+
 #include <torch/nn/utils/convert_parameters.h>
 #include <torch/nn/utils/clip_grad.h>
 #include <torch/csrc/api/include/torch/serialize.h>
@@ -7,7 +10,7 @@
 
 using namespace torch;
 
-GGL::PPOLearner::PPOLearner(int obsSize, int numActions, PPOLearnerConfig _config, Device _device) : config(_config), device(_device) {
+GGL::PPOLearner::PPOLearner(int obsSize, int numActions, PPOLearnerConfig _config, Device _device) : AlgoLearner(_device), config(_config) {
 
 	if (config.miniBatchSize == 0)
 		config.miniBatchSize = config.batchSize;
@@ -15,7 +18,14 @@ GGL::PPOLearner::PPOLearner(int obsSize, int numActions, PPOLearnerConfig _confi
 	if (config.batchSize % config.miniBatchSize != 0)
 		RG_ERR_CLOSE("PPOLearner: config.batchSize (" << config.batchSize << ") must be a multiple of config.miniBatchSize (" << config.miniBatchSize << ")");
 
-	MakeModels(true, obsSize, numActions, config.sharedHead, config.policy, config.critic, device, models);
+	PolicyInference::MakePolicyModels(obsSize, numActions, config.sharedHead, config.policy, device, models);
+
+	{ // Make the critic (its input comes from the shared head, if one is configured)
+		ModelConfig fullCriticConfig = config.critic;
+		fullCriticConfig.numInputs = models["shared_head"] ? config.sharedHead.layerSizes.back() : obsSize;
+		fullCriticConfig.numOutputs = 1;
+		models.Add(new Model("critic", fullCriticConfig, device));
+	}
 
 	SetLearningRates(config.policyLR, config.criticLR);
 
@@ -31,92 +41,13 @@ GGL::PPOLearner::PPOLearner(int obsSize, int numActions, PPOLearnerConfig _confi
 
 	if (config.useGuidingPolicy) {
 		RG_LOG("Guiding policy enabled, loading from " << config.guidingPolicyPath << "...");
-		MakeModels(false, obsSize, numActions, config.sharedHead, config.policy, config.critic, device, guidingPolicyModels);
+		PolicyInference::MakePolicyModels(obsSize, numActions, config.sharedHead, config.policy, device, guidingPolicyModels);
 		guidingPolicyModels.Load(config.guidingPolicyPath, false, false);
 	}
 }
 
-void GGL::PPOLearner::MakeModels(
-	bool makeCritic,
-	int obsSize, int numActions, 
-	PartialModelConfig sharedHeadConfig, PartialModelConfig policyConfig, PartialModelConfig criticConfig,
-	torch::Device device, 
-	ModelSet& outModels) {
-
-	ModelConfig fullPolicyConfig = policyConfig;
-	fullPolicyConfig.numInputs = obsSize;
-	fullPolicyConfig.numOutputs = numActions;
-
-	ModelConfig fullCriticConfig = criticConfig;
-	fullCriticConfig.numInputs = obsSize;
-	fullCriticConfig.numOutputs = 1;
-
-	if (sharedHeadConfig.IsValid()) {
-
-		ModelConfig fullSharedHeadConfig = sharedHeadConfig;
-		fullSharedHeadConfig.numInputs = obsSize;
-		fullSharedHeadConfig.numOutputs = 0;
-
-		RG_ASSERT(!sharedHeadConfig.addOutputLayer);
-
-		fullPolicyConfig.numInputs = fullSharedHeadConfig.layerSizes.back();
-		fullCriticConfig.numInputs = fullSharedHeadConfig.layerSizes.back();
-
-		outModels.Add(new Model("shared_head", fullSharedHeadConfig, device));
-	}
-
-	outModels.Add(new Model("policy", fullPolicyConfig, device));
-
-	if (makeCritic)
-		outModels.Add(new Model("critic", fullCriticConfig, device));
-}
-
-torch::Tensor GGL::PPOLearner::InferPolicyProbsFromModels(
-	ModelSet& models,
-	torch::Tensor obs, torch::Tensor actionMasks,
-	float temperature, bool halfPrec) {
-
-	actionMasks = actionMasks.to(torch::kBool);
-
-	constexpr float ACTION_MIN_PROB = 1e-11f;
-	constexpr float ACTION_DISABLED_LOGIT = -1e10f;
-
-	if (models["shared_head"])
-		obs = models["shared_head"]->Forward(obs, halfPrec);
-
-	auto logits = models["policy"]->Forward(obs, halfPrec) / temperature;
-
-	auto result = torch::softmax(logits.masked_fill(actionMasks.logical_not(), ACTION_DISABLED_LOGIT), -1);
-	return result.view({ -1, models["policy"]->config.numOutputs }).clamp(ACTION_MIN_PROB, 1);
-}
-
-void GGL::PPOLearner::InferActionsFromModels(
-	ModelSet& models,
-	torch::Tensor obs, torch::Tensor actionMasks, 
-	bool deterministic, float temperature, bool halfPrec,
-	torch::Tensor* outActions, torch::Tensor* outLogProbs) {
-
-	auto probs = InferPolicyProbsFromModels(models, obs, actionMasks, temperature, halfPrec);
-
-	if (deterministic) {
-		auto action = probs.argmax(1);
-		if (outActions)
-			*outActions = action.flatten();
-	} else {
-		auto action = torch::multinomial(probs, 1, true);
-		if (outActions)
-			*outActions = action.flatten();
-
-		if (outLogProbs) {
-			// Gather before log so we only compute log() on the selected actions
-			auto logProb = probs.gather(-1, action).log();
-			*outLogProbs = logProb.flatten();
-		}
-	}
-}
-
 void GGL::PPOLearner::InferActions(torch::Tensor obs, torch::Tensor actionMasks, torch::Tensor* outActions, torch::Tensor* outLogProbs, ModelSet* models) {
-	InferActionsFromModels(models ? *models : this->models, obs, actionMasks, config.deterministic, config.policyTemperature, config.useHalfPrecision, outActions, outLogProbs);
+	PolicyInference::InferActions(models ? *models : this->models, obs, actionMasks, config.deterministic, config.policyTemperature, config.useHalfPrecision, outActions, outLogProbs);
 }
 
 torch::Tensor GGL::PPOLearner::InferCritic(torch::Tensor obs) {
@@ -126,51 +57,6 @@ torch::Tensor GGL::PPOLearner::InferCritic(torch::Tensor obs) {
 
 	return models["critic"]->Forward(obs, config.useHalfPrecision).flatten();
 }
-
-torch::Tensor ComputeEntropy(torch::Tensor probs, torch::Tensor actionMasks, bool maskEntropy) {
-	// Compute log probs and entropy
-	auto entropy = -(probs.log() * probs).sum(-1);
-
-	if (maskEntropy) {
-		// Account for action masking in entropy
-		// We will effectively narrow the entropy to the scope of the valid actions
-		// This way states with more masked actions don't just have inherently lower entropy
-		// NOTE: Clamped to a minimum of 2 valid actions,
-		//	otherwise a state with 1 valid action would divide by log(1) = 0
-		//	(the entropy of such a state is always 0 anyway)
-		auto numValidActions = actionMasks.to(torch::kFloat32).sum(-1).clamp_min(2);
-		entropy /= numValidActions.log();
-	} else {
-		entropy /= logf(actionMasks.size(-1));
-	}
-
-	return entropy.mean();
-}
-
-// Accumulates a scalar metric as a device tensor
-// This prevents synchronizing the GPU pipeline every minibatch just to read metrics,
-//	which is a surprisingly large cost when done many times per learn iteration
-struct MetricAccum {
-	torch::Tensor sum = {};
-	int64_t count = 0;
-
-	void Add(const torch::Tensor& val) {
-		auto detached = val.detach();
-		if (sum.defined()) {
-			sum += detached;
-		} else {
-			sum = detached.clone();
-		}
-		count++;
-	}
-
-	// NOTE: Synchronizes the device, only call once done accumulating
-	float Get() const {
-		if (!count)
-			return 0;
-		return sum.cpu().item<float>() / count;
-	}
-};
 
 void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool isFirstIteration) {
 	if (config.deterministic)
@@ -244,9 +130,9 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 
 					// Get policy log probs and entropy
 					{
-						probs = InferPolicyProbsFromModels(models, obs, actionMasks, config.policyTemperature, false);
+						probs = PolicyInference::InferProbs(models, obs, actionMasks, config.policyTemperature, false);
 						logProbs = probs.log().gather(-1, acts.unsqueeze(-1));
-						entropy = ComputeEntropy(probs, actionMasks, config.maskEntropy);
+						entropy = PolicyInference::ComputeEntropy(probs, actionMasks, config.maskEntropy);
 						avgEntropy.Add(entropy);
 					}
 
@@ -273,7 +159,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 						torch::Tensor guidingProbs;
 						{
 							RG_NO_GRAD;
-							guidingProbs = InferPolicyProbsFromModels(guidingPolicyModels, obs, actionMasks, config.policyTemperature, config.useHalfPrecision);
+							guidingProbs = PolicyInference::InferProbs(guidingPolicyModels, obs, actionMasks, config.policyTemperature, config.useHalfPrecision);
 						}
 
 						auto guidingLoss = (guidingProbs - probs).abs().mean();
@@ -402,8 +288,8 @@ void GGL::PPOLearner::TransferLearn(
 	torch::Tensor oldProbs;
 	{ // No grad for old model inference
 		RG_NO_GRAD;
-		oldProbs = InferPolicyProbsFromModels(oldModels, oldObs, oldActionMasks, config.policyTemperature, config.useHalfPrecision);
-		report["Old Policy Entropy"] = ComputeEntropy(oldProbs, oldActionMasks, config.maskEntropy).detach().cpu().item<float>();
+		oldProbs = PolicyInference::InferProbs(oldModels, oldObs, oldActionMasks, config.policyTemperature, config.useHalfPrecision);
+		report["Old Policy Entropy"] = PolicyInference::ComputeEntropy(oldProbs, oldActionMasks, config.maskEntropy).detach().cpu().item<float>();
 
 		if (actionMaps.defined())
 			oldProbs = oldProbs.gather(1, actionMaps);
@@ -415,7 +301,7 @@ void GGL::PPOLearner::TransferLearn(
 	auto policyBefore = models["policy"]->CopyParams();
 	
 	for (int i = 0; i < tlConfig.epochs; i++) {
-		torch::Tensor newProbs = InferPolicyProbsFromModels(models, newObs, newActionMasks, config.policyTemperature, false);
+		torch::Tensor newProbs = PolicyInference::InferProbs(models, newObs, newActionMasks, config.policyTemperature, false);
 
 		// Non-summative KL div	loss
 		torch::Tensor transferLearnLoss;
@@ -434,7 +320,7 @@ void GGL::PPOLearner::TransferLearn(
 			report["Transfer Learn Accuracy"] = matchingActionsMask.to(torch::kFloat).mean().cpu().item<float>();
 			report["Transfer Learn Loss"] = transferLearnLoss.detach().cpu().item<float>();
 
-			report["Policy Entropy"] = ComputeEntropy(newProbs, newActionMasks, config.maskEntropy).detach().cpu().item<float>();
+			report["Policy Entropy"] = PolicyInference::ComputeEntropy(newProbs, newActionMasks, config.maskEntropy).detach().cpu().item<float>();
 		}
 
 		transferLearnLoss.backward();

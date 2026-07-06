@@ -6,7 +6,8 @@
 #include <RLGymCPP/StateSetters/FuzzedKickoffState.h>
 #include <RLGymCPP/TerminalConditions/GoalScoreCondition.h>
 
-#include <private/GigaLearnCPP/PPO/PPOLearner.h>
+#include <private/GigaLearnCPP/AlgoLearner.h>
+#include <private/GigaLearnCPP/Util/PolicyInference.h>
 
 using namespace nlohmann;
 
@@ -164,8 +165,11 @@ void GGL::PolicyVersionManager::SortVersions() {
 
 /////////////////////////////////////////////////////////////////////
 
-void GGL::PolicyVersionManager::RunSkillMatches(PPOLearner* ppo, Report& report) {
+void GGL::PolicyVersionManager::RunSkillMatches(AlgoLearner* algo, Report& report) {
 	RG_NO_GRAD;
+
+	// The current policy's models (a non-owning view)
+	ModelSet curModels = algo->GetPolicyModels();
 	
 	auto fnUpdateRatings = [this](SkillRating& winner, SkillRating& loser, RLGC::GameState& state) {
 		float& winnerRating = winner.GetRating(state, skill.config.initialRating);
@@ -243,13 +247,13 @@ void GGL::PolicyVersionManager::RunSkillMatches(PPOLearner* ppo, Report& report)
 		torch::Tensor tNewActions, tOldActions;
 
 		// NOTE: Log probs aren't needed for skill matches
-		PPOLearner::InferActionsFromModels(
-			ppo->models, tNewStates.to(ppo->device, true), tNewActionMasks.to(ppo->device, true), 
-			skill.config.deterministic, ppo->config.policyTemperature, ppo->config.useHalfPrecision, 
+		PolicyInference::InferActions(
+			curModels, tNewStates.to(algo->device, true), tNewActionMasks.to(algo->device, true), 
+			skill.config.deterministic, algo->GetPolicyTemperature(), algo->GetUseHalfPrecision(), 
 			&tNewActions, NULL);
-		PPOLearner::InferActionsFromModels(
-			oldVersion.models, tOldStates.to(ppo->device, true), tOldActionMasks.to(ppo->device, true), 
-			skill.config.deterministic, ppo->config.policyTemperature, ppo->config.useHalfPrecision,
+		PolicyInference::InferActions(
+			oldVersion.models, tOldStates.to(algo->device, true), tOldActionMasks.to(algo->device, true), 
+			skill.config.deterministic, algo->GetPolicyTemperature(), algo->GetUseHalfPrecision(),
 			&tOldActions, NULL);
 
 		auto newActions = TENSOR_TO_VEC<int>(tNewActions);
@@ -310,17 +314,17 @@ void GGL::PolicyVersionManager::RunSkillMatches(PPOLearner* ppo, Report& report)
 	}
 }
 
-void GGL::PolicyVersionManager::OnIteration(struct PPOLearner* ppo, Report& report, int64_t totalTimesteps, int64_t prevTotalTimesteps) {
+void GGL::PolicyVersionManager::OnIteration(class AlgoLearner* algo, Report& report, int64_t totalTimesteps, int64_t prevTotalTimesteps) {
 	if ((totalTimesteps / tsPerVersion > prevTotalTimesteps / tsPerVersion) || (prevTotalTimesteps == 0)) {
 		// Save version
-		AddVersion(ppo->GetPolicyModels(), totalTimesteps);
+		AddVersion(algo->GetPolicyModels(), totalTimesteps);
 	}
 
 	if (skill.config.enabled) {
 		skill.iterationsSinceRan++;
 		if (skill.iterationsSinceRan >= skill.config.updateInterval && !versions.empty()) {
 			skill.iterationsSinceRan = 0;
-			RunSkillMatches(ppo, report);
+			RunSkillMatches(algo, report);
 		}
 	}
 }
