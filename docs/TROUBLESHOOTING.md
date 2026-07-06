@@ -44,8 +44,8 @@ Debug-mode libtorch is extremely slow and has known issues. Build Release (optio
 
 ## Training
 
-**`Cannot train with config.ppo.deterministic enabled`**
-Deterministic mode is for inference/rendering only; PPO needs the stochastic log probs. Disable it for training.
+**`Cannot train with deterministic mode enabled`**
+Deterministic mode is for inference/rendering only; PPO needs the stochastic log probs, and SAC needs the exploration. Disable it for training.
 
 **`ExperienceBuffer: Not enough experience for a single batch`**
 `cfg.ppo.batchSize` must be ≤ the timesteps collected per iteration (`cfg.ppo.tsPerItr`).
@@ -76,6 +76,18 @@ The run ID is stored in `RUNNING_STATS.json` inside the checkpoint. If you delet
 
 **`Tried to load saved policy version that is newer than our current model`**
 You deleted recent checkpoints but kept newer policy versions. Delete the newer folders under `checkpoints/policy_versions/` too.
+
+**`This checkpoint was trained with the PPO algorithm, but config.algorithm is SAC` (or vice versa)**
+Checkpoint folders belong to one algorithm — the value/Q nets and optimizer state don't transfer. Point `cfg.checkpointFolder` at a fresh folder for the new algorithm. (Trained policies still work for *inference* everywhere via `InferUnit`, regardless of algorithm.)
+
+**SAC: high RAM usage**
+The replay buffer is preallocated in RAM: roughly `replayBufferSize * (2*obsSize*4 + 2*numActions + 16)` bytes (~500 MB at defaults with obs size ~100). Lower `cfg.sac.replayBufferSize` if memory-constrained; older experience just gets dropped sooner.
+
+**SAC: nothing is learning at the start of a run**
+By design — learning starts once `cfg.sac.learningStartTimesteps` timesteps have been collected (watch the `SAC/Learning Active` metric). Resumed runs also refill the (unsaved) replay buffer before learning resumes.
+
+**SAC: Q losses / `SAC/Avg Q` exploding**
+Q divergence. Lower `qLR`, reduce the replay ratio (`gradientStepsPerItr * batchSize / tsPerItr`), or raise `tau` more conservatively (smaller). Extreme reward scales make this worse — keep rewards in a sane range.
 
 ## Render mode
 

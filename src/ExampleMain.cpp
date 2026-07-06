@@ -159,6 +159,21 @@ int main(int argc, char* argv[]) {
 	cfg.sendMetrics = true; // Send metrics
 	cfg.renderMode = false; // Don't render
 
+	// ~~~ To train with SAC (off-policy Soft Actor-Critic, discrete) instead of PPO ~~~
+	// The environment, rewards, callbacks, and checkpoints all stay the same;
+	//	just switch the algorithm and configure cfg.sac instead of cfg.ppo
+	//	(see docs/CONFIGURATION.md for all options; use a fresh checkpoint folder)
+	/*
+	cfg.algorithm = LearningAlgorithmType::SAC;
+	cfg.sac.tsPerItr = 10'000;
+	cfg.sac.replayBufferSize = 500'000; // Held in RAM
+	cfg.sac.batchSize = 512;
+	cfg.sac.gradientStepsPerItr = 64;
+	cfg.sac.policy.layerSizes = { 256, 256, 256 };
+	cfg.sac.qNet.layerSizes = { 256, 256, 256 };
+	cfg.sac.targetEntropyScale = 0.7f; // Exploration is auto-tuned toward this entropy target
+	*/
+
 	// Make the learner with the environment creation function and the config we just made
 	Learner* learner = new Learner(EnvCreateFunc, cfg, StepCallback);
 

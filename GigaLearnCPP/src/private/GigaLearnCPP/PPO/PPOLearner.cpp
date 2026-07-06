@@ -361,7 +361,8 @@ void GGL::PPOLearner::SetLearningRates(float policyLR, float criticLR) {
 GGL::ModelSet GGL::PPOLearner::GetPolicyModels() {
 	ModelSet result = {};
 	for (Model* model : models) {
-		if (model->modelName == "critic")
+		// NOTE: std::string comparison (raw string literal pointers aren't guaranteed unique)
+		if (model->modelName == std::string("critic"))
 			continue;
 		
 		result.Add(model);

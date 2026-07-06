@@ -37,14 +37,23 @@
 
 ### Progress
 [X] Full audit of learner/PPO/version-manager/InferUnit/tests/CI to plan integration
-[ ] Refactor shared policy inference + AlgoLearner base
-[ ] ReplayBuffer + tests
-[ ] SACLearner + tests
-[ ] Learner integration (config, save/load, Start() branch)
-[ ] Integration test SAC phase
-[ ] Docs + example
-[ ] Verify: build, 59+ unit tests, integration, SAC smoke training run
-[ ] Commit, push, PR
+[X] Refactor shared policy inference + AlgoLearner base (PPO behavior unchanged; all call sites updated)
+[X] ReplayBuffer + 6 tests (wraparound, oversized batch, sampling alignment, guards)
+[X] SACLearner + 8 tests (hand-computed Q targets, mask exclusion, Polyak math, bandit convergence,
+    auto-alpha direction, save/load roundtrip, config rejection, target init)
+[X] Learner integration (algorithm enum, ctor branch, algorithm tag in RUNNING_STATS.json,
+    SAC consumption path building transitions from trajectories incl. truncation masks, guards)
+[X] Integration test SAC phases (train, resume, both-direction algorithm-mismatch errors, InferUnit)
+[X] Docs (README, CONFIGURATION, ARCHITECTURE, GETTING_STARTED, TRAINING_GUIDE, TROUBLESHOOTING) + ExampleMain snippet
+[X] Verify: 73/73 unit tests, integration test green, 2M-step SAC smoke run on synthetic arena
+    (reward 0.47 -> 0.85, alpha auto-tuned 0.2 -> 0.63 tracking entropy target, Q values growing smoothly,
+    ~17k steps/s on 4-core CPU VM), version-manager smoke w/ skill tracker + old-version play for BOTH algos
+[ ] Commit docs round, push, PR
+
+### VM env note (this branch)
+- pytorch.org downloads blocked on this VM (TLS to download-r2.pytorch.org fails);
+  used conda-forge libtorch instead: micromamba create -p /workspace/.libtorch-env -c conda-forge "libtorch=2.5.1=cpu_generic*"
+  then cmake -DCMAKE_PREFIX_PATH=/workspace/.libtorch-env (folder is gitignored)
 
 ## Previous task: Improve GigaLearnCPP (bugs, speed, docs, setup, roadmap) — branch cursor/improve-gigalearn-e1ff, PR #1
 

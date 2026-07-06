@@ -23,6 +23,7 @@
 #include "Util/AvgTracker.h"
 
 #include <csignal>
+#include <memory>
 
 using namespace RLGC;
 
