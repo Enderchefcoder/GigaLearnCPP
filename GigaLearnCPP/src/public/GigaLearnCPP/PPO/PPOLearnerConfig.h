@@ -19,6 +19,13 @@ namespace GGL {
 		// This will only happen if the amount of remaining experience is < batchSize*2.
 		bool overbatching = true;
 
+		// Keep the whole iteration's experience on the GPU for the learn phase,
+		//	instead of re-uploading every minibatch each epoch
+		// Faster (especially with multiple epochs), but holds the full experience in VRAM
+		//	(disable if you run out of VRAM with very large tsPerItr/obs sizes)
+		// Has no effect when learning on CPU
+		bool experienceOnDevice = true;
+
 		double maxEpisodeDuration = 120; // In seconds
 
 		// Actions with the highest probability are always chosen, instead of being more likely
@@ -44,6 +51,21 @@ namespace GGL {
 		bool maskEntropy = false; 
 
 		float clipRange = 0.2f;
+
+		// Normalize advantages within each minibatch (a common PPO trick)
+		// This can stabilize training when advantage magnitudes vary a lot between iterations,
+		//	but it also discards some information about how good an action really was
+		bool normalizeAdvantages = false;
+
+		// If the average KL divergence of an epoch exceeds (1.5 * targetKLDiv),
+		//	remaining epochs are skipped for that iteration
+		// This is a common PPO safeguard against destructively large policy updates
+		// Set to 0 to disable (default)
+		float targetKLDiv = 0;
+
+		// Maximum gradient norm per model per batch (standard PPO gradient clipping)
+		// Set to 0 to disable clipping
+		float gradClipNorm = 0.5f;
 		
 		// Temperature of the policy's softmax distribution
 		float policyTemperature = 1;

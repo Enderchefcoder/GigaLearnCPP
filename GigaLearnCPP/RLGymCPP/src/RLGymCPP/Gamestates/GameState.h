@@ -57,7 +57,9 @@ namespace RLGC {
 		}
 
 		const auto& GetBoostPadTimers(bool inverted) const {
-			return inverted ? boostPadTimers : boostPadTimersInv;
+			// NOTE: This used to return the wrong perspective's timers (the condition was flipped),
+			//	which gave orange-team obs builders the blue-team pad timers and vice versa
+			return inverted ? boostPadTimersInv : boostPadTimers;
 		}
 
 		// Called before updating to reset the per-step state

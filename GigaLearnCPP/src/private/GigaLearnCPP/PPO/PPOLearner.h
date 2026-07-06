@@ -1,5 +1,5 @@
 #pragma once
-#include "ExperienceBuffer.h";
+#include "ExperienceBuffer.h"
 #include <GigaLearnCPP/Util/Report.h>
 #include <GigaLearnCPP/Util/Timer.h>
 #include <GigaLearnCPP/PPO/PPOLearnerConfig.h>
@@ -10,8 +10,6 @@
 #include <torch/optim/adam.h>
 #include <torch/nn/modules/loss.h>
 #include <torch/nn/modules/container/sequential.h>
-
-#include "ExperienceBuffer.h"
 
 namespace GGL {
 
@@ -70,6 +68,14 @@ namespace GGL {
 		void LoadFrom(std::filesystem::path folderPath);
 		void SetLearningRates(float policyLR, float criticLR);
 
+		// NOTE: The returned set is a non-owning view of this learner's models
 		ModelSet GetPolicyModels();
+
+		RG_NO_COPY(PPOLearner);
+
+		~PPOLearner() {
+			models.Free();
+			guidingPolicyModels.Free();
+		}
 	};
 }

@@ -10,7 +10,9 @@ namespace GGL {
 		struct ModelSet* models;
 		bool useGPU;
 
-		// NOTE: Reset() will never be called on your obs 
+		// NOTE: Reset() will never be called on your obs builder
+		// NOTE: If one InferUnit is shared between multiple bots calling from different threads,
+		//	the obs builder must be stateless (e.g. AdvancedObs); otherwise create one InferUnit per bot
 		InferUnit(
 			RLGC::ObsBuilder* obsBuilder, int obsSize, RLGC::ActionParser* actionParser,
 			PartialModelConfig sharedHeadConfig, PartialModelConfig policyConfig,
@@ -20,6 +22,9 @@ namespace GGL {
 		RLGC::Action InferAction(const RLGC::Player& player, const RLGC::GameState& state, bool deterministic, float temperature = 1);
 		std::vector<RLGC::Action> BatchInferActions(const std::vector<RLGC::Player>& players, const std::vector<RLGC::GameState>& states, bool deterministic, float temperature = 1);
 
-		// TODO: Add deconstructor (make sure to free models too)
+		RG_NO_COPY(InferUnit);
+
+		// NOTE: Does not free the obs builder or action parser (they are owned by the caller)
+		~InferUnit();
 	};
 }

@@ -7,6 +7,7 @@
 namespace RLGC {
 	// Combine state setters with weights
 	// On env reset, one of the child state setters will be chosen at random, weighted by their corresponding weight
+	// NOTE: Takes ownership of the child state setters
 	class CombinedState : public StateSetter {
 	private:
 		std::vector<StateSetter*> setters = {};
@@ -42,6 +43,11 @@ namespace RLGC {
 			}
 
 			RG_ERR_CLOSE("CombinedState ran out of setters before the matching cumulative weight was found (this should never happen)");
+		}
+
+		virtual ~CombinedState() {
+			for (StateSetter* setter : setters)
+				delete setter;
 		}
 	};
 }

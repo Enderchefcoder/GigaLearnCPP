@@ -1,0 +1,147 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  LIBTORCH_VERSION: 2.5.1
+
+jobs:
+  build-and-test:
+    name: Build & test (Linux, CPU libtorch)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ python3-dev
+
+      - name: Cache libtorch
+        id: cache-libtorch
+        uses: actions/cache@v4
+        with:
+          path: GigaLearnCPP/libtorch
+          key: libtorch-cpu-${{ env.LIBTORCH_VERSION }}
+
+      - name: Download libtorch (CPU)
+        if: steps.cache-libtorch.outputs.cache-hit != 'true'
+        run: |
+          curl -sL -o libtorch.zip "https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}%2Bcpu.zip"
+          unzip -q libtorch.zip -d GigaLearnCPP/
+          rm libtorch.zip
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_CXX_COMPILER=g++
+          -DGGL_BUILD_TESTS=ON
+          -DGGL_BUILD_RLBOT_EXAMPLE=ON
+
+      - name: Build
+        run: cmake --build build -j $(nproc)
+
+      - name: Run unit tests
+        run: ./build/GigaLearnTests
+
+      - name: Run integration test (tiny CPU training run)
+        run: ./build/GigaLearnIntegrationTest
+
+  build-and-test-ubsan:
+    name: Build & test (Linux, UBSan)
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake g++ python3-dev
+
+      - name: Cache libtorch
+        id: cache-libtorch
+        uses: actions/cache@v4
+        with:
+          path: GigaLearnCPP/libtorch
+          key: libtorch-cpu-${{ env.LIBTORCH_VERSION }}
+
+      - name: Download libtorch (CPU)
+        if: steps.cache-libtorch.outputs.cache-hit != 'true'
+        run: |
+          curl -sL -o libtorch.zip "https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-${LIBTORCH_VERSION}%2Bcpu.zip"
+          unzip -q libtorch.zip -d GigaLearnCPP/
+          rm libtorch.zip
+
+      - name: Configure (undefined behavior sanitizer)
+        run: >
+          cmake -S . -B build
+          -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_CXX_COMPILER=g++
+          -DGGL_BUILD_TESTS=ON
+          "-DCMAKE_CXX_FLAGS=-fsanitize=undefined -fno-sanitize-recover=all"
+          "-DCMAKE_EXE_LINKER_FLAGS=-fsanitize=undefined"
+          "-DCMAKE_SHARED_LINKER_FLAGS=-fsanitize=undefined"
+
+      - name: Build
+        run: cmake --build build -j $(nproc)
+
+      - name: Run unit tests
+        run: ./build/GigaLearnTests
+        env:
+          UBSAN_OPTIONS: print_stacktrace=1
+
+      - name: Run integration test
+        run: ./build/GigaLearnIntegrationTest
+        env:
+          UBSAN_OPTIONS: print_stacktrace=1
+
+  build-and-test-windows:
+    name: Build & test (Windows, CPU libtorch)
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Cache libtorch
+        id: cache-libtorch
+        uses: actions/cache@v4
+        with:
+          path: GigaLearnCPP/libtorch
+          key: libtorch-cpu-win-${{ env.LIBTORCH_VERSION }}
+
+      - name: Download libtorch (CPU)
+        if: steps.cache-libtorch.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          curl.exe -sL -o libtorch.zip "https://download.pytorch.org/libtorch/cpu/libtorch-win-shared-with-deps-$env:LIBTORCH_VERSION%2Bcpu.zip"
+          Expand-Archive -Path libtorch.zip -DestinationPath GigaLearnCPP/
+          Remove-Item libtorch.zip
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DGGL_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --config Release -j 4
+
+      - name: Run unit tests
+        run: ./build/Release/GigaLearnTests.exe
+
+      - name: Run integration test (tiny CPU training run)
+        run: ./build/Release/GigaLearnIntegrationTest.exe

@@ -1,0 +1,115 @@
+# Lessons
+
+## User Specified Lessons
+
+- You have a python venv in ./venv (create if needed). Check `which uv` first; if available use `uv pip install`, else `pip`.
+- For multiline commit messages, write the message to a file and use `git commit -F <filename>`, then delete the file. Include "[Cursor] " in commit messages and PR titles.
+
+## Cursor learned
+
+- This repo (GigaLearnCPP) was developed on MSVC; GCC needed: Timer clock fix, include-path case fixes, -fPIC on static libs, no std::iterator, cxxabi demangling.
+- libtorch 2.x requires CMake >= 3.18; CPU build for Linux: https://download.pytorch.org/libtorch/cpu/libtorch-cxx11-abi-shared-with-deps-2.5.1%2Bcpu.zip -> extract to GigaLearnCPP/libtorch (gitignored).
+- On this VM, `c++` is clang++ without libstdc++ dev files: always configure with -DCMAKE_CXX_COMPILER=g++.
+- `configure_file(... COPY)` is invalid CMake; must be COPYONLY.
+- `torch::tensor(std::vector<T>)` is ~2.7x slower than `from_blob(...).clone()` for big buffers (measured).
+- gather()/index_copy_ in libtorch require kInt64 index tensors (runtime error otherwise).
+- Test CMake globs need CONFIGURE_DEPENDS or a manual reconfigure to pick up new files.
+- tmux sessions get reaped in this environment; run long builds as foreground Shell commands with big block_until_ms instead.
+- Collision meshes: synthetic box mesh can be generated for smoke tests (struct: int32 numTris, int32 numVerts, tris as 3x int32, verts as 3x float, little-endian, .cmf in collision_meshes/soccar/).
+- rlgym-ppo interop: GigaLearn model files are POLICY.lt/CRITIC.lt/SHARED_HEAD.lt (torch::save archives, loadable with torch.jit.load in Python).
+
+# Scratchpad
+
+## Task: Improve GigaLearnCPP (bugs, speed, docs, setup, roadmap) — branch cursor/improve-gigalearn-e1ff, PR #1
+
+### Status: COMPLETE (round 2 finished) — all items done, verified, committed, pushed, PR updated
+
+### Round 12 additions
+[X] TODO audit: fixed the 2 real ones (transfer-learn old-obs building now parallel per arena; obs-stat sampling excludes old-version players). Remaining TODOs are cosmetic/documented-limitations.
+[X] FRESH-CLONE VALIDATION: pristine clone of the branch -> documented quick start exactly (setup script, cmake, build, 59/59 tests, integration test, synthetic mesh, first training run w/ checkpoints+metrics) -> zero manual intervention needed
+
+### Round 11 additions
+[X] cfg.checkpointToLoad: rollback to a specific checkpoint (+ rollback warnings, integration test phase 3a)
+[X] Corrupt RUNNING_STATS.json -> clear delete-this-folder error instead of raw JSON exception
+[X] README Known Limitations section (honest scope: discrete-only, feedforward-only, single machine, no bit-reproducibility)
+
+### Round 10 additions
+[X] Discovered + fixed: the sealed test box made scoring physically impossible (all previous runs never scored) -> tools/make_test_mesh.py generates a synthetic arena WITH functional goal boxes; verified goals register
+[X] 4.5-HOUR LEARNING VALIDATION RUN (121M steps, 4792 iters, 0 warnings):
+    - Avg step reward 0.66 -> 1.70 (clear inflection ~25M)
+    - Skill rating (ELO vs old selves): 5 -> ~64, steady climb = real intelligence progression
+    - Episode length 4136 -> 429 steps (bot learned to SCORE; episodes end by goals not timeouts)
+    - Entropy healthy (0.76 -> 0.55 -> 0.65 partial recovery, no collapse); KL stable
+[X] Docs link check: all first-party links resolve (only vendored thread_pool README has stale upstream links)
+
+### Round 9 additions
+[X] 2.5-hour CHAOS SOAK: 60 run/kill/restart cycles rotating SIGTERM/SIGINT/SIGKILL - 0 failures, 0 corrupt checkpoints, 131.6M steps across kills; mid-save SIGKILL handled by atomic-save design
+[X] Startup cleanup of ~incomplete checkpoint temp folders (the one artifact hard kills leave)
+[X] tools/plot_metrics.py: dashboard for JSONL fallback logs (verified against real soak data, multi-run compare, --list, --out)
+[X] CONTRIBUTING.md (dev setup, test/CI reproduction incl. UBSan, vendored-code rules)
+
+### Round 8 additions
+[X] ASAN pass: 0 errors across 59 unit tests + full integration (heap bugs now verified clean; UBSan already in CI)
+[X] GAE randomized property test: 100 random episode structures vs reference implementation
+[X] Transfer learning validated END TO END (integration phase 5: old policy -> stacked-obs policy); StartTransferLearn honors timestepLimit
+[X] RLBot deployment example (src/rlbot_example/ -> GigaLearnRLBot target, GGL_BUILD_RLBOT_EXAMPLE=ON, compiled in Linux CI)
+
+### Round 7 additions
+[X] UBSan find + fix: btWheelInfo left RaycastInfo/dynamics fields uninitialized (first-tick car behavior read stack garbage; nondeterministic). Upstream bullet quirk.
+[X] UBSan CI job (Linux, -fno-sanitize-recover, unit + integration) - 3 CI jobs all green
+[X] docs/TRAINING_GUIDE.md: metric health table, stage playbook, failure modes, scaling
+[X] 64-min all-features soak (incl. StackedObs, new rewards, recency bias): 83.4M steps, 16k iters, 0 errors, RSS 277->260MB (no leak), 5 versions rotated correctly; ended via SIGTERM -> saved checkpoint at 83,885,760 and exited cleanly
+
+### Round 6 additions
+[X] SIGINT/SIGTERM graceful save-and-exit (verified live: single signal saves cleanly, double force-quits); works headless where Q-key doesn't
+[X] cfg.ppo.experienceOnDevice (default on): learn phase keeps experience in VRAM, no per-minibatch re-upload each epoch; indices follow device; CPU unaffected
+[X] Docs: TROUBLESHOOTING (VRAM + Ctrl+C entries), CONFIGURATION table updated
+
+### Round 5 additions
+[X] scripts/setup_libtorch.sh/.ps1 (verified with real download) - removes THE manual setup step
+[X] Classic rewards: LiuDistancePlayerToBall, LiuDistanceBallToGoal, AlignBallGoal, FlipReset (unit-tested, formulas faithful to rlgym)
+[X] StackedObs frame-stacking wrapper (per-player histories, reset seeding, unit-tested)
+[X] docs/REWARDS.md catalog; InferUnit thread-safety note; README/INSTALLATION script integration
+[X] Live validation: trained with StackedObs(AdvancedObs,3) + all new rewards -> obs 327, all reward metrics logged, 92 iters clean (58/58 tests, integration green)
+
+### Round 4 additions
+[X] Checkpoint metadata (obs_size/num_actions/tick_skip in RUNNING_STATS.json): clear errors on env changes instead of cryptic model-size failures; integration test phase added
+[X] wandb/metric failures + failed auto-saves warn instead of killing runs (C++ and Python sides)
+[X] Learner only finalizes Python interpreter it started (safe for throwing ctors/embedding hosts)
+[X] Re-profiled post-fix: remaining time = MKL model math + bullet raycasts (fundamental); OMP_WAIT_POLICY=passive tested = within variance (not adopted); RS_MAX_SPEED evaluated and rejected (removes input sanity clamps -> NaN risk)
+
+### Round 3 additions
+[X] PROFILED collection (gperftools): 55% CPU burned in OMP spin-wait -> torch threads limited to 1 during collection, restored for learning: collection 2.4x faster, overall +58% (27k->43k steps/s on 4-core VM). cfg.collectionTorchThreads.
+[X] Windows (MSVC) CI job: builds + all tests pass on windows-2022 (primary user platform now verified)
+[X] python_scripts copied next to binaries for multi-config generators (VS Release dir)
+[X] Learner::SetLearningRates/SetEntropyScale + getters (runtime schedules from step callback) + docs example
+[X] cfg.oldVersionRecencyBias (PFSP-style recent-opponent bias, uniform default)
+[X] Half-precision bf16 test (tracks fp32, lazy refresh path); integration test now mixed 1v1+2v2 with DefaultObsPadded
+[X] Rejected on evidence: Gumbel-max sampling (5.7x slower than multinomial on CPU), KMP_BLOCKTIME (no effect)
+
+### Round 2 additions
+[X] NaN physics-divergence recovery (auto-reset arenas, discard poisoned episodes, Env NaN Resets metric, fail-fast for deterministic bugs)
+[X] End-to-end integration test in CI (in-memory rounded-box mesh, real CPU training, save/resume, InferUnit) — 15/15 local, green on GitHub
+[X] cfg.timestepLimit (clean finite runs)
+[X] KL early stop verified engaging; gradClipNorm option; InferUnit fast tensors; skill matches skip log probs
+[X] Boost pad timer perspective bug (orange got blue's timers) + obs mirror-symmetry test
+[X] pImpl'd MetricSender/RenderSender (no pybind11 leak into public headers, warning-free first-party build)
+[X] 19-min all-subsystems soak: 26M steps, 5016 iters, RSS flat (+0.1MB) -> no leaks, 0 warnings
+
+[X] Full codebase audit (learner, PPO, GAE, envset, models, utils, obs/actions/rewards, RLBot, tools, python scripts)
+[X] 25+ bugs fixed (see PR body / commit messages for the full list); highlights:
+    - GAE truncation-order corruption + OOB bootstrap read
+    - Overbatching silently dropping experience
+    - EnvSet arena-creation order race misattributing game events
+    - Inverted boost pad timers giving orange team blue's timers
+    - DefaultAction dead action + 0-boost jump+boost actions
+    - Welford JSON key mismatch crashing standardizeObs checkpoint loads
+    - trainAgainstOldVersions trajectory gap corruption (roadmap item finished)
+    - RLBot pad ordering scrambled in-game obs
+    - MSVC-only include resolution + case + -fPIC (Linux support)
+[X] Perf: one GPU sync per iteration (was ~8/minibatch), from_blob conversions, vectorizable NaN scan, no hot-loop temporaries, index-tensor batching
+[X] Features: normalizeAdvantages, targetKLDiv early stop, gradClipNorm, wandb fallback logger, atomic checkpoint saves, GGL_NATIVE_ARCH, sys.path fix, mesh warning
+[X] Tests: 52 unit tests, all passing (GAE regressions, masks, stats, buffers, models, obs symmetry, env components)
+[X] CI: GitHub Actions Linux build + tests with cached CPU libtorch
+[X] Docs: README rewrite + docs/{INSTALLATION,GETTING_STARTED,CONFIGURATION,ARCHITECTURE,TROUBLESHOOTING,MIGRATING}.md + rlbot README
+[X] Verification: Linux Release build clean; 52/52 tests; CPU training smoke (save/resume), self-play + skill-tracker smoke, 4-min truncation stress (1617 iters, 90% vs old versions, no errors), KL early-stop distribution check, render-mode smoke, 64-game scale run (~27k steps/s on 4-core CPU VM)

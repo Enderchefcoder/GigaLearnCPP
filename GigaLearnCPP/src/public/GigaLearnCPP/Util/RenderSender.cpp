@@ -1,21 +1,31 @@
 #include "RenderSender.h"
 
 #include <nlohmann/json.hpp>
+#include <pybind11/pybind11.h>
 
 using namespace nlohmann;
 using namespace RLGC;
 
+struct GGL::RenderSender::Impl {
+	pybind11::module pyMod;
+};
+
 GGL::RenderSender::RenderSender(float timeScale) : timeScale(timeScale) {
 	RG_LOG("Initializing RenderSender...");
 
+	impl = new Impl();
+
 	try {
 		RG_LOG("Current dir: " << std::filesystem::current_path());
-		pyMod = pybind11::module::import("python_scripts.render_receiver");
+		impl->pyMod = pybind11::module::import("python_scripts.render_receiver");
 	} catch (std::exception& e) {
-		RG_ERR_CLOSE("RenderSender: Failed to import render receiver, exception: " << e.what());
+		RG_ERR_CLOSE(
+			"RenderSender: Failed to import render receiver, exception: " << e.what() << "\n" <<
+			"Make sure the \"python_scripts\" folder is next to your executable (or in your working directory)."
+		);
 	}
 
-	RG_LOG(" > RenderSender initalized.");
+	RG_LOG(" > RenderSender initialized.");
 }
 
 FList VecToList(const Vec& vec) {
@@ -91,7 +101,7 @@ void GGL::RenderSender::Send(const GameState& state) {
 	std::string jStr = j.dump();
 
 	try {
-		pyMod.attr("render_state")(jStr);
+		impl->pyMod.attr("render_state")(jStr);
 	} catch (std::exception& e) {
 		RG_ERR_CLOSE("RenderSender: Failed to send gamestate, exception: " << e.what());
 	}
@@ -122,4 +132,6 @@ void GGL::RenderSender::Send(const GameState& state) {
 	}
 }
 
-GGL::RenderSender::~RenderSender() {}
+GGL::RenderSender::~RenderSender() {
+	delete impl;
+}

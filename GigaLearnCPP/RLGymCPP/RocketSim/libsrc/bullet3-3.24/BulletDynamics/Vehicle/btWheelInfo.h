@@ -102,6 +102,19 @@ struct btWheelInfo
 		m_rollInfluence = btScalar(0.1);
 		m_bIsFrontWheel = ci.m_bIsFrontWheel;
 		m_maxSuspensionForce = ci.m_maxSuspensionForce;
+
+		// FIX (not in upstream bullet): the raycast info was left uninitialized,
+		//	so freshly-added wheels read garbage contact state until their first raycast
+		//	(also flagged as undefined behavior by UBSan when wheels are copied)
+		m_raycastInfo.m_suspensionLength = btScalar(0.);
+		m_raycastInfo.m_isInContact = false;
+		m_raycastInfo.m_groundObject = 0;
+
+		m_clientInfo = 0;
+		m_clippedInvContactDotSuspension = btScalar(0.);
+		m_suspensionRelativeVelocity = btScalar(0.);
+		m_wheelsSuspensionForce = btScalar(0.);
+		m_skidInfo = btScalar(1.);
 	}
 
 	void updateWheel(const btRigidBody& chassis, RaycastInfo& raycastInfo);

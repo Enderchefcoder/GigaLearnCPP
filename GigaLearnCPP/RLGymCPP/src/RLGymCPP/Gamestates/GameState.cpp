@@ -60,7 +60,11 @@ void RLGC::GameState::UpdateFromArena(Arena* arena, const std::vector<Action>& a
 		prev->prev = NULL;
 
 	lastArena = arena;
-	int tickSkip = RS_MAX(arena->tickCount - lastTickCount, 0);
+
+	// NOTE: For a freshly-constructed state (e.g. right after an arena reset), there is no previous update,
+	//	so the elapsed time is zero (the arena's tick count keeps counting across resets)
+	bool isFirstUpdate = players.empty();
+	int tickSkip = isFirstUpdate ? 0 : (int)RS_MAX((int64_t)arena->tickCount - (int64_t)lastTickCount, 0);
 	deltaTime = tickSkip * (1 / 120.f);
 
 	ball = arena->ball->GetState();

@@ -17,6 +17,13 @@ namespace GGL {
 		int tickSkip = 8;
 		int actionDelay = 7;
 
+		// Number of torch intra-op threads to use during collection (0 = leave at torch's default)
+		// Torch's idle worker threads spin-wait, which starves the environment threads during collection,
+		//	so limiting torch to 1 thread during collection is usually much faster on CPU
+		//	(the full thread count is restored for the learn phase, which needs it)
+		// On this library's test machine, 1 makes CPU collection ~2.4x faster than torch's default
+		int collectionTorchThreads = 1;
+
 		bool renderMode = false;
 		// If renderMode, this is the scaling of time for the game
 		// 1.0 = Run the game at real time
@@ -25,10 +32,23 @@ namespace GGL {
 
 		PPOLearnerConfig ppo = {};
 
+		// Stop training once this many total timesteps have been collected
+		//	(a final checkpoint is saved first, if saving is enabled)
+		// Set to 0 to train forever (default)
+		int64_t timestepLimit = 0;
+
 		// Checkpoints are saved here as timestep-numbered subfolders
 		//	e.g. a checkpoint at 20,000 steps will save to a subfolder called "20000"
 		// Set empty to disable saving
 		std::filesystem::path checkpointFolder = "checkpoints"; 
+
+		// Which checkpoint (timestep subfolder) to load at startup
+		// -1 loads the newest checkpoint (default)
+		// Set to a specific checkpoint's timestep number to roll back after a bad
+		//	training period. NOTE: Delete the newer checkpoint subfolders (and newer
+		//	policy versions, if using them) afterwards, otherwise auto-cleanup and
+		//	version loading will misbehave around them (a warning will tell you).
+		int64_t checkpointToLoad = -1;
 
 		// Save every timestep
 		// Set to zero to just use timestepsPerIteration
@@ -66,6 +86,12 @@ namespace GGL {
 
 		bool trainAgainstOldVersions = false;
 		float trainAgainstOldChance = 0.15f; // Chance (from 0 - 1) that an iteration will train against an old version
+
+		// Biases old-version opponent selection toward recent versions
+		// 0 = uniform over all saved versions (default)
+		// Otherwise, each step back in version history is (1 - bias) times as likely to be picked
+		//	(e.g. 0.25 means a version is picked 75% as often as the version after it)
+		float oldVersionRecencyBias = 0;
 
 		SkillTrackerConfig skillTracker = {};
 	};

@@ -21,7 +21,8 @@ RLBotBot::RLBotBot(int _index, int _team, std::string _name, const RLBotParams& 
 }
 
 RLBotBot::~RLBotBot() {
-	delete g_RLBotParams.inferUnit;
+	// NOTE: The InferUnit is shared between all bots (it lives in g_RLBotParams),
+	//	so it must not be deleted here (other bots may still be using it)
 }
 
 Vec ToVec(const rlbot::flat::Vector3* rlbotVec) {
@@ -59,7 +60,46 @@ Player ToPlayer(const rlbot::flat::PlayerInfo* playerInfo) {
 	return pd;
 }
 
-GameState ToGameState(rlbot::GameTickPacket& gameTickPacket) {
+// Builds a mapping from RLBot's boost pad ordering to RLGymCPP's ordering
+//	(they don't match, so pads must be matched by position)
+// Returns an empty vector if the arena's pads don't match the standard layout
+static std::vector<int> BuildBoostPadMap(const rlbot::FieldInfo& fieldInfo) {
+	constexpr float MAX_MATCH_DIST_SQ = 100 * 100;
+
+	auto pads = fieldInfo->boostPads();
+	if (!pads || pads->size() != CommonValues::BOOST_LOCATIONS_AMOUNT)
+		return {};
+
+	std::vector<int> map = std::vector<int>(pads->size(), -1);
+	std::vector<bool> used = std::vector<bool>(CommonValues::BOOST_LOCATIONS_AMOUNT, false);
+
+	for (int i = 0; i < pads->size(); i++) {
+		Vec padPos = ToVec(pads->Get(i)->location());
+
+		int bestIdx = -1;
+		float bestDistSq = MAX_MATCH_DIST_SQ;
+		for (int j = 0; j < CommonValues::BOOST_LOCATIONS_AMOUNT; j++) {
+			if (used[j])
+				continue;
+
+			float distSq = padPos.DistSq2D(CommonValues::BOOST_LOCATIONS[j]);
+			if (distSq < bestDistSq) {
+				bestDistSq = distSq;
+				bestIdx = j;
+			}
+		}
+
+		if (bestIdx == -1)
+			return {}; // Not a standard soccar pad layout
+
+		map[i] = bestIdx;
+		used[bestIdx] = true;
+	}
+
+	return map;
+}
+
+GameState ToGameState(rlbot::GameTickPacket& gameTickPacket, const std::vector<int>& boostPadMap) {
 	GameState gs = {};
 
 	auto players = gameTickPacket->players();
@@ -69,22 +109,27 @@ GameState ToGameState(rlbot::GameTickPacket& gameTickPacket) {
 	static_cast<PhysState&>(gs.ball) = ToPhysObj(gameTickPacket->ball()->physics());
 
 	auto boostPadStates = gameTickPacket->boostPadStates();
-	if (boostPadStates->size() != CommonValues::BOOST_LOCATIONS_AMOUNT) {
+	if (boostPadStates->size() != CommonValues::BOOST_LOCATIONS_AMOUNT || boostPadMap.empty()) {
 		if (rand() % 20 == 0) { // Don't spam-log as that will lag the bot
 			RG_LOG(
-				"RLBotClient ToGameState(): Bad boost pad amount, expected " << CommonValues::BOOST_LOCATIONS_AMOUNT << " but got " << boostPadStates->size()
+				"RLBotClient ToGameState(): Bad boost pad amount or non-standard pad layout " <<
+				"(expected " << CommonValues::BOOST_LOCATIONS_AMOUNT << ", got " << boostPadStates->size() << ")"
 			);
 		}
 
 		// Just set all boost pads to on
 		std::fill(gs.boostPads.begin(), gs.boostPads.end(), 1);
+		std::fill(gs.boostPadsInv.begin(), gs.boostPadsInv.end(), 1);
 	} else {
 		for (int i = 0; i < CommonValues::BOOST_LOCATIONS_AMOUNT; i++) {
-			gs.boostPads[i] = boostPadStates->Get(i)->isActive();
-			gs.boostPadsInv[CommonValues::BOOST_LOCATIONS_AMOUNT - i - 1] = gs.boostPads[i];
+			int rsIdx = boostPadMap[i];
+			int rsIdxInv = CommonValues::BOOST_LOCATIONS_AMOUNT - rsIdx - 1;
 
-			gs.boostPadTimers[i] = boostPadStates->Get(i)->timer();
-			gs.boostPadTimersInv[CommonValues::BOOST_LOCATIONS_AMOUNT - i - 1] = gs.boostPadTimers[i];
+			gs.boostPads[rsIdx] = boostPadStates->Get(i)->isActive();
+			gs.boostPadsInv[rsIdxInv] = gs.boostPads[rsIdx];
+
+			gs.boostPadTimers[rsIdx] = boostPadStates->Get(i)->timer();
+			gs.boostPadTimersInv[rsIdxInv] = gs.boostPadTimers[rsIdx];
 		}
 	}
 
@@ -100,7 +145,14 @@ rlbot::Controller RLBotBot::GetOutput(rlbot::GameTickPacket gameTickPacket) {
 	int ticksElapsed = roundf(deltaTime * 120);
 	ticks += ticksElapsed;
 
-	GameState gs = ToGameState(gameTickPacket);
+	if (!triedBuildingBoostPadMap) {
+		triedBuildingBoostPadMap = true;
+		boostPadMap = BuildBoostPadMap(GetFieldInfo());
+		if (boostPadMap.empty())
+			RG_LOG("RLBotClient: Failed to match boost pads to the standard layout, all pads will be treated as active");
+	}
+
+	GameState gs = ToGameState(gameTickPacket, boostPadMap);
 	auto& localPlayer = gs.players[index];
 	localPlayer.prevAction = controls;
 

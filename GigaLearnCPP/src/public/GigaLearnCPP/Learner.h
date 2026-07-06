@@ -36,12 +36,24 @@ namespace GGL {
 			totalTimesteps = 0,
 			totalIterations = 0;
 
+		// Whether this learner started the embedded Python interpreter (and thus must finalize it)
+		bool _ownsPyInterpreter = false;
+
 		StepCallbackFn stepCallback = NULL;
 
 		Learner(RLGC::EnvCreateFn envCreateFunc, LearnerConfig config, StepCallbackFn stepCallback = NULL);
 		void Start();
 
 		void StartTransferLearn(const TransferLearnConfig& transferLearnConfig);
+
+		// Runtime training-parameter adjustment (e.g. for schedules driven from the step callback)
+		// Takes effect from the next learn phase onwards
+		void SetLearningRates(float policyLR, float criticLR);
+		void SetEntropyScale(float entropyScale);
+
+		float GetPolicyLR() const;
+		float GetCriticLR() const;
+		float GetEntropyScale() const;
 
 		void StartQuitKeyThread(bool& quitPressed, std::thread& outThread);
 

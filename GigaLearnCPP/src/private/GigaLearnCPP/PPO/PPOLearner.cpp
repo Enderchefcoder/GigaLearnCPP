@@ -86,7 +86,7 @@ torch::Tensor GGL::PPOLearner::InferPolicyProbsFromModels(
 
 	auto logits = models["policy"]->Forward(obs, halfPrec) / temperature;
 
-	auto result = torch::softmax(logits + ACTION_DISABLED_LOGIT * actionMasks.logical_not(), -1);
+	auto result = torch::softmax(logits.masked_fill(actionMasks.logical_not(), ACTION_DISABLED_LOGIT), -1);
 	return result.view({ -1, models["policy"]->config.numOutputs }).clamp(ACTION_MIN_PROB, 1);
 }
 
@@ -104,12 +104,14 @@ void GGL::PPOLearner::InferActionsFromModels(
 			*outActions = action.flatten();
 	} else {
 		auto action = torch::multinomial(probs, 1, true);
-		auto logProb = torch::log(probs).gather(-1, action);
 		if (outActions)
 			*outActions = action.flatten();
 
-		if (outLogProbs)
+		if (outLogProbs) {
+			// Gather before log so we only compute log() on the selected actions
+			auto logProb = probs.gather(-1, action).log();
 			*outLogProbs = logProb.flatten();
+		}
 	}
 }
 
@@ -133,7 +135,11 @@ torch::Tensor ComputeEntropy(torch::Tensor probs, torch::Tensor actionMasks, boo
 		// Account for action masking in entropy
 		// We will effectively narrow the entropy to the scope of the valid actions
 		// This way states with more masked actions don't just have inherently lower entropy
-		entropy /= actionMasks.to(torch::kFloat32).sum(-1).log();
+		// NOTE: Clamped to a minimum of 2 valid actions,
+		//	otherwise a state with 1 valid action would divide by log(1) = 0
+		//	(the entropy of such a state is always 0 anyway)
+		auto numValidActions = actionMasks.to(torch::kFloat32).sum(-1).clamp_min(2);
+		entropy /= numValidActions.log();
 	} else {
 		entropy /= logf(actionMasks.size(-1));
 	}
@@ -141,10 +147,41 @@ torch::Tensor ComputeEntropy(torch::Tensor probs, torch::Tensor actionMasks, boo
 	return entropy.mean();
 }
 
+// Accumulates a scalar metric as a device tensor
+// This prevents synchronizing the GPU pipeline every minibatch just to read metrics,
+//	which is a surprisingly large cost when done many times per learn iteration
+struct MetricAccum {
+	torch::Tensor sum = {};
+	int64_t count = 0;
+
+	void Add(const torch::Tensor& val) {
+		auto detached = val.detach();
+		if (sum.defined()) {
+			sum += detached;
+		} else {
+			sum = detached.clone();
+		}
+		count++;
+	}
+
+	// NOTE: Synchronizes the device, only call once done accumulating
+	float Get() const {
+		if (!count)
+			return 0;
+		return sum.cpu().item<float>() / count;
+	}
+};
+
 void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool isFirstIteration) {
+	if (config.deterministic)
+		RG_ERR_CLOSE(
+			"PPOLearner::Learn(): Cannot run a learn iteration in deterministic mode.\n" <<
+			"Deterministic mode is only for inference (it does not produce the log probs PPO needs to learn)."
+		);
+
 	auto mseLoss = torch::nn::MSELoss();
 
-	MutAvgTracker
+	MetricAccum
 		avgEntropy,
 		avgDivergence,
 		avgPolicyLoss,
@@ -154,6 +191,9 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 		avgRatio,
 		avgClip;
 
+	// Per-epoch KL accumulator (only used for targetKLDiv early stopping)
+	MetricAccum epochDivergence;
+
 	// Save parameters first
 	auto policyBefore = models["policy"]->CopyParams();
 	auto criticBefore = models["critic"]->CopyParams();
@@ -161,6 +201,8 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 	bool trainPolicy = config.policyLR != 0;
 	bool trainCritic = config.criticLR != 0;
 	bool trainSharedHead = models["shared_head"] && (trainPolicy || trainCritic);
+
+	int epochsRan = 0;
 
 	for (int epoch = 0; epoch < config.epochs; epoch++) {
 
@@ -175,8 +217,14 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 			auto batchTargetValues = batch.targetValues;
 			auto batchAdvantages = batch.advantages;
 
-			auto fnRunMinibatch = [&](int start, int stop) {
+			// May exceed config.batchSize if this is an overbatched final batch
+			int64_t curBatchSize = batchActs.size(0);
 
+			auto fnRunMinibatch = [&](int64_t start, int64_t stop) {
+
+				// Ratio of minibatch size to batch size, for gradient accumulation scaling
+				// Uses config.batchSize (not curBatchSize) so each sample always has the same gradient weight,
+				//	even in overbatched batches
 				float batchSizeRatio = (stop - start) / (float)config.batchSize;
 
 				// Send everything to the device and enforce correct shapes
@@ -188,24 +236,25 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 				auto oldProbs = batchOldProbs.slice(0, start, stop).to(device, true, true);
 				auto targetValues = batchTargetValues.slice(0, start, stop).to(device, true, true);
 
+				if (config.normalizeAdvantages)
+					advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8f);
+
 				torch::Tensor probs, logProbs, entropy, ratio, clipped, policyLoss, ppoLoss;
 				if (trainPolicy) {
 
 					// Get policy log probs and entropy
-					float curEntropy;
 					{
 						probs = InferPolicyProbsFromModels(models, obs, actionMasks, config.policyTemperature, false);
 						logProbs = probs.log().gather(-1, acts.unsqueeze(-1));
 						entropy = ComputeEntropy(probs, actionMasks, config.maskEntropy);
-						curEntropy = entropy.detach().cpu().item<float>();
-						avgEntropy += curEntropy;
+						avgEntropy.Add(entropy);
 					}
 
 					logProbs = logProbs.view_as(oldProbs);
 
 					// Compute PPO loss
 					ratio = exp(logProbs - oldProbs);
-					avgRatio += ratio.mean().detach().cpu().item<float>();
+					avgRatio.Add(ratio.mean());
 					clipped = clamp(
 						ratio, 1 - config.clipRange, 1 + config.clipRange
 					);
@@ -214,10 +263,9 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 					policyLoss = -min(
 						ratio * advantages, clipped * advantages
 					).mean();
-					float curPolicyLoss = policyLoss.detach().cpu().item<float>();
-					avgPolicyLoss += curPolicyLoss;
+					avgPolicyLoss.Add(policyLoss);
 
-					avgRelEntropyLoss += (curEntropy * config.entropyScale) / curPolicyLoss;
+					avgRelEntropyLoss.Add((entropy.detach() * config.entropyScale) / policyLoss.detach());
 
 					ppoLoss = (policyLoss - entropy * config.entropyScale) * batchSizeRatio;
 
@@ -229,7 +277,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 						}
 
 						auto guidingLoss = (guidingProbs - probs).abs().mean();
-						avgGuidingLoss.Add(guidingLoss.detach().cpu().item<float>());
+						avgGuidingLoss.Add(guidingLoss);
 						guidingLoss = guidingLoss * config.guidingStrength;
 						ppoLoss = ppoLoss + guidingLoss;
 					}
@@ -242,7 +290,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 					// Compute value loss
 					vals = vals.view_as(targetValues);
 					criticLoss = mseLoss(vals, targetValues) * batchSizeRatio;
-					avgCriticLoss += criticLoss.detach().cpu().item<float>();
+					avgCriticLoss.Add(criticLoss);
 				}
 
 				if (trainPolicy) {
@@ -252,10 +300,13 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 
 						auto logRatio = logProbs - oldProbs;
 						auto klTensor = (exp(logRatio) - 1) - logRatio;
-						avgDivergence += klTensor.mean().detach().cpu().item<float>();
+						auto klMean = klTensor.mean();
+						avgDivergence.Add(klMean);
+						if (config.targetKLDiv > 0)
+							epochDivergence.Add(klMean);
 
 						auto clipFraction = mean((abs(ratio - 1) > config.clipRange).to(kFloat));
-						avgClip += clipFraction.cpu().item<float>();
+						avgClip.Add(clipFraction);
 					}
 				}
 
@@ -272,27 +323,44 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 
 			
 			if (device.is_cpu()) {
-				// Just run one minibatch
-				fnRunMinibatch(0, config.batchSize);
+				// Just run one minibatch over the whole batch (including any overbatched tail)
+				fnRunMinibatch(0, curBatchSize);
 			} else {
-				for (int mbs = 0; mbs < config.batchSize; mbs += config.miniBatchSize) {
-					int start = mbs;
-					int stop = start + config.miniBatchSize;
+				for (int64_t mbs = 0; mbs < curBatchSize; mbs += config.miniBatchSize) {
+					int64_t start = mbs;
+					int64_t stop = RS_MIN(start + config.miniBatchSize, curBatchSize);
 					fnRunMinibatch(start, stop);
 				}
 			}
 
-			if (trainPolicy)
-				nn::utils::clip_grad_norm_(models["policy"]->parameters(), 0.5f);
-			if (trainCritic)
-				nn::utils::clip_grad_norm_(models["critic"]->parameters(), 0.5f);
+			if (config.gradClipNorm > 0) {
+				if (trainPolicy)
+					nn::utils::clip_grad_norm_(models["policy"]->parameters(), config.gradClipNorm);
+				if (trainCritic)
+					nn::utils::clip_grad_norm_(models["critic"]->parameters(), config.gradClipNorm);
 
-			if (trainSharedHead)
-				nn::utils::clip_grad_norm_(models["shared_head"]->parameters(), 0.5f);
+				if (trainSharedHead)
+					nn::utils::clip_grad_norm_(models["shared_head"]->parameters(), config.gradClipNorm);
+			}
 
 			models.StepOptims();
 		}
+
+		epochsRan++;
+
+		// Optional early stopping: skip remaining epochs if the policy moved too far
+		//	(1.5x multiplier is the common heuristic, e.g. SB3)
+		if (config.targetKLDiv > 0 && trainPolicy) {
+			float epochKL = epochDivergence.Get();
+			epochDivergence = {};
+
+			if (epochKL > 1.5f * config.targetKLDiv)
+				break;
+		}
 	}
+
+	if (config.targetKLDiv > 0)
+		report["Epochs Ran"] = epochsRan;
 
 	// Compute magnitude of updates made to the policy and value estimator
 	auto policyAfter = models["policy"]->CopyParams();
@@ -302,6 +370,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 	float criticUpdateMagnitude = (criticBefore - criticAfter).norm().item<float>();
 
 	// Assemble and return report
+	// (This is where the metric accumulators actually synchronize with the device)
 	report["Policy Entropy"] = avgEntropy.Get();
 	report["Mean KL Divergence"] = avgDivergence.Get();
 	if (!isFirstIteration) {
@@ -314,6 +383,7 @@ void GGL::PPOLearner::Learn(ExperienceBuffer& experience, Report& report, bool i
 		if (config.useGuidingPolicy)
 			report["Guiding Loss"] = avgGuidingLoss.Get();
 
+		report["Policy Ratio"] = avgRatio.Get();
 		report["SB3 Clip Fraction"] = avgClip.Get();
 		report["Policy Update Magnitude"] = policyUpdateMagnitude;
 		report["Critic Update Magnitude"] = criticUpdateMagnitude;

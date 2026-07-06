@@ -26,13 +26,29 @@ GGL::PolicyVersionManager::PolicyVersionManager(
 		skillEnvSetConfig.numArenas = skill.config.numArenas;
 		skill.envSet = new RLGC::EnvSet(skillEnvSetConfig);
 		for (int i = 0; i < skill.envSet->arenas.size(); i++) {
+			// Skill matches don't use rewards, and always run kickoffs until goals
+			// Free what the env creation function made before replacing it
+			for (auto& weightedReward : skill.envSet->rewards[i])
+				delete weightedReward.reward;
 			skill.envSet->rewards[i].clear();
-			skill.envSet->stateSetters[i] = { new RLGC::FuzzedKickoffState() };
+
+			delete skill.envSet->stateSetters[i];
+			skill.envSet->stateSetters[i] = new RLGC::FuzzedKickoffState();
+
+			for (auto& cond : skill.envSet->terminalConditions[i])
+				delete cond;
 			skill.envSet->terminalConditions[i] = { new RLGC::GoalScoreCondition() };
 		}
 	} else {
 		skill.envSet = NULL;
 	}
+}
+
+GGL::PolicyVersionManager::~PolicyVersionManager() {
+	for (auto& version : versions)
+		version.models.Free();
+
+	delete skill.envSet;
 }
 
 GGL::PolicyVersion& GGL::PolicyVersionManager::AddVersion(ModelSet modelsToClone, uint64_t timesteps) {
@@ -64,21 +80,16 @@ GGL::PolicyVersion& GGL::PolicyVersionManager::AddVersion(ModelSet modelsToClone
 void GGL::PolicyVersionManager::SaveVersions() {
 	RG_NO_GRAD;
 
-	// Remove old saved versions
+	// Remove saved versions that are no longer tracked
 	std::set<int64_t> allSavedTimesteps = Utils::FindNumberedDirs(saveFolder);
 
 	for (int64_t savedTimesteps : allSavedTimesteps) {
 		bool matchesVersion = false;
 		for (auto& version : versions)
-			matchesVersion |= (savedTimesteps == version.timesteps);
+			matchesVersion |= (savedTimesteps == (int64_t)version.timesteps);
 
-		if (matchesVersion) {
-			// We want to keep this
-			allSavedTimesteps.insert(savedTimesteps);
-		} else {
-			// Get rid of it
+		if (!matchesVersion)
 			std::filesystem::remove_all(saveFolder / std::to_string(savedTimesteps));
-		}
 	}
 
 	for (auto& version : versions) {
@@ -230,16 +241,16 @@ void GGL::PolicyVersionManager::RunSkillMatches(PPOLearner* ppo, Report& report)
 		skill.envSet->StepFirstHalf(true);
 
 		torch::Tensor tNewActions, tOldActions;
-		torch::Tensor _tLogProbs;
 
+		// NOTE: Log probs aren't needed for skill matches
 		PPOLearner::InferActionsFromModels(
 			ppo->models, tNewStates.to(ppo->device, true), tNewActionMasks.to(ppo->device, true), 
 			skill.config.deterministic, ppo->config.policyTemperature, ppo->config.useHalfPrecision, 
-			&tNewActions, &_tLogProbs);
+			&tNewActions, NULL);
 		PPOLearner::InferActionsFromModels(
 			oldVersion.models, tOldStates.to(ppo->device, true), tOldActionMasks.to(ppo->device, true), 
 			skill.config.deterministic, ppo->config.policyTemperature, ppo->config.useHalfPrecision,
-			&tOldActions, &_tLogProbs);
+			&tOldActions, NULL);
 
 		auto newActions = TENSOR_TO_VEC<int>(tNewActions);
 		auto oldActions = TENSOR_TO_VEC<int>(tOldActions);
@@ -277,7 +288,7 @@ void GGL::PolicyVersionManager::RunSkillMatches(PPOLearner* ppo, Report& report)
 		float delta = pair.second - prevRating;
 
 		std::stringstream ratingLine;
-		ratingLine << " > " << pair.first << " = " << prevRating;
+		ratingLine << pair.first << " = " << pair.second;
 		if (delta != 0)
 			ratingLine << " (" << (delta >= 0 ? '+' : '-') << abs(delta) << ")";
 

@@ -1,12 +1,15 @@
 #pragma once
 #include "Report.h"
-#include <pybind11/pybind11.h>
 
 namespace GGL {
 	struct RG_IMEXPORT MetricSender {
 		std::string curRunID;
 		std::string projectName, groupName, runName;
-		pybind11::module pyMod;
+
+		// Hides the embedded Python module from this public header
+		// (Also avoids visibility mismatches between the exported struct and pybind11's hidden types)
+		struct Impl;
+		Impl* impl;
 
 		MetricSender(std::string projectName = {}, std::string groupName = {}, std::string runName = {}, std::string runID = {});
 		

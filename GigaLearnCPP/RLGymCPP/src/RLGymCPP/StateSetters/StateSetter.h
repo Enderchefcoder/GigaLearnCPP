@@ -5,5 +5,7 @@ namespace RLGC {
 	class StateSetter {
 	public:
 		virtual void ResetArena(Arena* arena) = 0;
+
+		virtual ~StateSetter() = default;
 	};
 }

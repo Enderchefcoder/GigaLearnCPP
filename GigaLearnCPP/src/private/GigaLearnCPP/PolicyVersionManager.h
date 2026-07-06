@@ -103,6 +103,8 @@ namespace GGL {
 		void AddRunningStatsToJSON(nlohmann::json& json);
 		void LoadRunningStatsFromJSON(const nlohmann::json& json);
 
-		// TODO: Add deconstructor
+		RG_NO_COPY(PolicyVersionManager);
+
+		~PolicyVersionManager();
 	};
 }

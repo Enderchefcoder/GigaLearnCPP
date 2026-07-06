@@ -4,7 +4,10 @@
 #include <conio.h>
 
 char GGL::KeyPressDetector::GetPressedChar() {
-	return _getch();
+	int result = _getch();
+	if (result == EOF)
+		return CHAR_UNAVAILABLE;
+	return (char)result;
 }
 
 #else
@@ -14,22 +17,39 @@ char GGL::KeyPressDetector::GetPressedChar() {
 char GGL::KeyPressDetector::GetPressedChar() {
 	// https://stackoverflow.com/questions/421860/capture-characters-from-standard-input-without-waiting-for-enter-to-be-pressed
 	char buf = 0;
-	struct termios old = { 0 };
-	if (tcgetattr(0, &old) < 0)
-		perror("tcsetattr()");
-	old.c_lflag &= ~ICANON;
-	old.c_lflag &= ~ECHO;
-	old.c_cc[VMIN] = 1;
-	old.c_cc[VTIME] = 0;
-	if (tcsetattr(0, TCSANOW, &old) < 0)
-		perror("tcsetattr ICANON");
-	if (read(0, &buf, 1) < 0)
-		perror("read()");
-	old.c_lflag |= ICANON;
-	old.c_lflag |= ECHO;
-	if (tcsetattr(0, TCSADRAIN, &old) < 0)
-		perror("tcsetattr ~ICANON");
-	return (buf);
+
+	// stdin may not be a terminal (e.g. piped input, headless server), in which case
+	//	we just do a normal blocking read
+	bool isTerminal = isatty(0);
+
+	struct termios old = {};
+	if (isTerminal) {
+		if (tcgetattr(0, &old) < 0)
+			perror("tcgetattr()");
+		old.c_lflag &= ~ICANON;
+		old.c_lflag &= ~ECHO;
+		old.c_cc[VMIN] = 1;
+		old.c_cc[VTIME] = 0;
+		if (tcsetattr(0, TCSANOW, &old) < 0)
+			perror("tcsetattr ICANON");
+	}
+
+	ssize_t readResult = read(0, &buf, 1);
+
+	if (isTerminal) {
+		old.c_lflag |= ICANON;
+		old.c_lflag |= ECHO;
+		if (tcsetattr(0, TCSADRAIN, &old) < 0)
+			perror("tcsetattr ~ICANON");
+	}
+
+	if (readResult <= 0) {
+		// 0 = end of input (stdin closed), <0 = read error
+		// Either way, input is unavailable
+		return CHAR_UNAVAILABLE;
+	}
+
+	return buf;
 }
 
 #endif

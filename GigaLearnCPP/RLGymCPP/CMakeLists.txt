@@ -1,6 +1,6 @@
-﻿cmake_minimum_required (VERSION 3.8)
+﻿cmake_minimum_required(VERSION 3.18)
 
-project("RLGymCPP")
+project("RLGymCPP" LANGUAGES CXX)
 
 # Add all headers and code files
 file(GLOB_RECURSE FILES_SRC "src/*.cpp" "src/*.h")
@@ -10,6 +10,9 @@ target_include_directories(RLGymCPP PUBLIC "src/")
 # Set C++ version to 20
 set_target_properties(RLGymCPP PROPERTIES LINKER_LANGUAGE CXX)
 set_target_properties(RLGymCPP PROPERTIES CXX_STANDARD 20)
+
+# Required to link this static library into the GigaLearnCPP shared library
+set_target_properties(RLGymCPP PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # Include RocketSim
 add_subdirectory("RocketSim")

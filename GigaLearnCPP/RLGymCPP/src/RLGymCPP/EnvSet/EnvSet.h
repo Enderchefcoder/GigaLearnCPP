@@ -3,7 +3,7 @@
 #include "../BasicTypes/Action.h"
 #include "../TerminalConditions/TerminalCondition.h"
 #include "../Rewards/Reward.h"
-#include "../OBSBuilders/OBSBuilder.h"
+#include "../ObsBuilders/ObsBuilder.h"
 #include "../ActionParsers/ActionParser.h"
 #include "../StateSetters/StateSetter.h"
 #include "../ThreadPool.h"
@@ -46,6 +46,7 @@ namespace RLGC {
 
 		void Resize(std::vector<Arena*>& arenas) {
 			numPlayers = 0;
+			arenaPlayerStartIdx.clear();
 			for (int i = 0; i < arenas.size(); i++) {
 				arenaPlayerStartIdx.push_back(numPlayers);
 				numPlayers += arenas[i]->_cars.size();
@@ -90,6 +91,7 @@ namespace RLGC {
 
 		RG_NO_COPY(EnvSet);
 
+		// The EnvSet owns everything the env creation function returned (except userInfo)
 		~EnvSet() {
 			for (Arena* arena : arenas)
 				delete arena;
@@ -98,6 +100,21 @@ namespace RLGC {
 				delete eventTracker;
 			for (auto& eventCallbackInfo : eventCallbackInfos)
 				delete eventCallbackInfo;
+
+			for (auto& arenaRewards : rewards)
+				for (auto& weightedReward : arenaRewards)
+					delete weightedReward.reward;
+
+			for (auto& arenaConds : terminalConditions)
+				for (auto& cond : arenaConds)
+					delete cond;
+
+			for (auto& obsBuilder : obsBuilders)
+				delete obsBuilder;
+			for (auto& actionParser : actionParsers)
+				delete actionParser;
+			for (auto& stateSetter : stateSetters)
+				delete stateSetter;
 		}
 
 		////////////////////

@@ -11,5 +11,7 @@ namespace RLGC {
 
 		// NOTE: May be called once during environment initialization to determine policy neuron size
 		virtual FList BuildObs(const Player& player, const GameState& state) = 0;
+
+		virtual ~ObsBuilder() = default;
 	};
 }

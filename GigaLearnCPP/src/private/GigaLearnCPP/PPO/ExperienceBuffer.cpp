@@ -7,15 +7,9 @@ GGL::ExperienceBuffer::ExperienceBuffer(int seed, torch::Device device) :
 
 }
 
-GGL::ExperienceTensors GGL::ExperienceBuffer::_GetSamples(const int64_t* indices, size_t size) const {
-
-	// TODO: Slow, use blob
-	Tensor tIndices = torch::tensor(IList(indices, indices + size));
+GGL::ExperienceTensors GGL::ExperienceBuffer::_GetSamples(torch::Tensor tIndices) const {
 
 	ExperienceTensors result;
-	auto fnSlice = [=](torch::Tensor t) -> torch::Tensor {
-		return torch::index_select(t, 0, tIndices);
-	};
 
 	auto* toItr = result.begin();
 	auto* fromItr = data.begin();
@@ -29,29 +23,40 @@ std::vector<GGL::ExperienceTensors> GGL::ExperienceBuffer::GetAllBatchesShuffled
 
 	RG_NO_GRAD;
 
-	size_t expSize = data.states.size(0);
+	int64_t expSize = data.states.size(0);
 
-	// Make list of shuffled sample indices
-	int64_t* indices = new int64_t[expSize];
-	std::iota(indices, indices + expSize, 0); // Fill ascending indices
-	std::shuffle(indices, indices + expSize, rng);
+	if (expSize < batchSize)
+		RG_ERR_CLOSE(
+			"ExperienceBuffer::GetAllBatchesShuffled(): Not enough experience for a single batch " <<
+			"(have " << expSize << ", batch size is " << batchSize << ").\n" <<
+			"Make sure your batch size is not larger than the timesteps collected per iteration."
+		);
+
+	// Make a shuffled tensor of sample indices
+	Tensor tIndices = torch::empty({ expSize }, torch::kInt64);
+	{
+		int64_t* indices = tIndices.data_ptr<int64_t>();
+		std::iota(indices, indices + expSize, 0); // Fill ascending indices
+		std::shuffle(indices, indices + expSize, rng);
+	}
+
+	// index_select() requires the indices to be on the same device as the experience
+	//	(the experience may live on the GPU, see PPOLearnerConfig::experienceOnDevice)
+	tIndices = tIndices.to(data.states.device());
 
 	// Get a sample set from each of the batches
 	std::vector<ExperienceTensors> result;
 	for (int64_t startIdx = 0; startIdx + batchSize <= expSize; startIdx += batchSize) {
 
-		int curBatchSize = batchSize;
-		if (startIdx + batchSize * 2 > expSize) {
-			// Last batch of the iteration
-			if (overbatching) {
-				// Extend batch size to the end of the experience
-				curBatchSize = expSize - startIdx;
-			}
+		int64_t curBatchSize = batchSize;
+		if (overbatching && (startIdx + batchSize * 2 > expSize)) {
+			// Last batch of the iteration:
+			// Extend batch size to the end of the experience so no timesteps are wasted
+			curBatchSize = expSize - startIdx;
 		}
 
-		result.push_back(_GetSamples(indices + startIdx, curBatchSize));
+		result.push_back(_GetSamples(tIndices.narrow(0, startIdx, curBatchSize)));
 	}
 
-	delete[] indices;
 	return result;
 }
