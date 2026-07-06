@@ -24,6 +24,11 @@
 
 ### Status: COMPLETE (round 2 finished) — all items done, verified, committed, pushed, PR updated
 
+### Round 11 additions
+[X] cfg.checkpointToLoad: rollback to a specific checkpoint (+ rollback warnings, integration test phase 3a)
+[X] Corrupt RUNNING_STATS.json -> clear delete-this-folder error instead of raw JSON exception
+[X] README Known Limitations section (honest scope: discrete-only, feedforward-only, single machine, no bit-reproducibility)
+
 ### Round 10 additions
 [X] Discovered + fixed: the sealed test box made scoring physically impossible (all previous runs never scored) -> tools/make_test_mesh.py generates a synthetic arena WITH functional goal boxes; verified goals register
 [X] 4.5-HOUR LEARNING VALIDATION RUN (121M steps, 4792 iters, 0 warnings):
